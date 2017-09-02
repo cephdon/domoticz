@@ -12,6 +12,31 @@
 		</table>
     </form>
 </div>
+<div id="dialog-editcustomsensordevice" title="Edit Device">
+    <form>
+        <table class="display" id="metertable" border="0" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="right" style="width:60px"><label for="devicename"><span data-i18n="Name">Name</span>: </label></td>
+          <td><input type="text" id="devicename" style="width: 250px; padding: .4em;" class="text ui-widget-content ui-corner-all" /></td>
+        </tr>
+		<tr>
+			<td align="right" style="width:200px"><label for="sensoraxis"><span data-i18n="Axis Label"></span>:</label></td>
+			<td><input type="text" id="sensoraxis" style="width: 240px; padding: .2em;" class="text ui-widget-content ui-corner-all" /></td>
+		</tr>
+		<tr>
+			<td align="right"><label for="combosensoricon"><span data-i18n="Sensor Icon"></span>: </label></td>
+			<td>
+				<select id="combosensoricon" style="width:200px" class="combobox ui-corner-all">
+				</select>
+			</td>
+		</tr>
+		<tr>
+			<td align="right" style="width:120px"><label for="devicedescription"><span data-i18n="Description"></span>: </label></td>
+			<td><textarea id="devicedescription" name="devicedescription" rows="4" style="width: 356px; padding: .2em;" class="text ui-widget-content ui-corner-all"></textarea></td>
+		</tr>
+		</table>
+    </form>
+</div>
 <div id="dialog-editmeterdevice" title="Edit Device">
     <form>
         <table class="display" id="metertable" border="0" cellpadding="0" cellspacing="0">
@@ -29,6 +54,18 @@
             <!--#embed metertypes -->
           </select></td>
 		</tr>
+		<tr id="tdmeteroffset">
+          <td align="right"><label for="meteroffset"><span data-i18n="Meter Offset">Meter Offset</span>: </label></td>
+          <td><input type="text" id="meteroffset" style="width: 120px; padding: .4em;" class="text ui-widget-content ui-corner-all" /></td>
+		</tr>
+        <tr id="customcounter">
+          <td align="right"><label for="valuequantity"><span data-i18n="Value Quantity (e.g. Weight)">Value Quantity (e.g. Weight)</span>: </label></td>
+          <td><input type="text" id="valuequantity" style="width: 140px; padding: .4em;" class="text ui-widget-content ui-corner-all" /></td>
+        </tr>
+        <tr id="customcounter">
+          <td align="right"><label for="valueunits"><span data-i18n="Value Units (e.g. Kg)">Value Units (e.g. Kg)</span>: </label></td>
+          <td><input type="text" id="valueunits" style="width: 140px; padding: .4em;" class="text ui-widget-content ui-corner-all" /></td>
+        </tr>
 		</table>
     </form>
 </div>
@@ -50,6 +87,13 @@
             <option value="4" data-i18n="Return">Return</option>
           </select></td>
 		</tr>
+        <tr>
+             <td align="right" style="width:120px"><label for="devoptions"><span data-i18n="Energy read">Energy read</span>: </label></td>          
+             <td>
+             <input type="radio" name="devoptions" id="devoptions2" value="1" >&nbsp;&nbsp;<span data-i18n="Computed">&nbsp;&nbsp;Computed</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|
+             <input type="radio" name="devoptions" id="devoptions1" value="0" checked>&nbsp;&nbsp;<span data-i18n="From device">From device</span>
+             </td>
+        </tr>
 		</table>
     </form>
 </div>
@@ -240,6 +284,55 @@
 					<input type="checkbox" id="ChkFri" checked/>&nbsp;<span data-i18n="Friday"></span>&nbsp;
 					<input type="checkbox" id="ChkSat" checked/>&nbsp;<span data-i18n="Saturday"></span>&nbsp;
 					<input type="checkbox" id="ChkSun" checked/>&nbsp;<span data-i18n="Sunday"></span>&nbsp;
+				</td>
+			</tr>
+			<tr id="rdays"><td></td></tr>
+			<tr id="rdays">
+				<td align="right" style="width:80px"><label for="days"><span data-i18n="Day"></span>:</label></td>
+				<td>
+					<select id="days" style="width:50px" class="combobox ui-corner-all"></select>
+				</td>
+			</tr>
+			<tr id="roccurence"><td></td></tr>
+			<tr id="roccurence">
+				<td align="right" style="width:80px"><label for="occurence"><span data-i18n="Day"></span>:</label></td>
+				<td>
+					<select id="occurence" style="width:90px" class="combobox ui-corner-all">
+					<option value="1" data-i18n="First">First</option>
+					<option value="2" data-i18n="2nd">2nd</option>
+					<option value="3" data-i18n="3rd">3rd</option>
+					<option value="4" data-i18n="4th">4th</option>
+					<option value="5" data-i18n="Last">Last</option>
+					</select>
+					<select id="weekdays" style="width:100px" class="combobox ui-corner-all">
+					<option value="0" data-i18n="Monday">Monday</option>
+					<option value="1" data-i18n="Tuesday">Tuesday</option>
+					<option value="2" data-i18n="Wednesday">Wednesday</option>
+					<option value="3" data-i18n="Thursday">Thursday</option>
+					<option value="4" data-i18n="Friday">Friday</option>
+					<option value="5" data-i18n="Saturday">Saturday</option>
+					<option value="6" data-i18n="Sunday">Sunday</option>
+					</select>
+				</td>
+			</tr>
+			<tr id="rmonths"><td></td></tr>
+			<tr id="rmonths">
+				<td align="right" style="width:80px"><label for="months"><span data-i18n="Month"></span>:</label></td>
+				<td>
+					<select id="months" style="width:90px" class="combobox ui-corner-all">
+					<option value="1" data-i18n="January">January</option>
+					<option value="2" data-i18n="February">February</option>
+					<option value="3" data-i18n="March">March</option>
+					<option value="4" data-i18n="April">April</option>
+					<option value="5" data-i18n="May">May</option>
+					<option value="6" data-i18n="June">June</option>
+					<option value="7" data-i18n="July">July</option>
+					<option value="8" data-i18n="August">August</option>
+					<option value="9" data-i18n="September">September</option>
+					<option value="10" data-i18n="October">October</option>
+					<option value="11" data-i18n="November">November</option>
+					<option value="12" data-i18n="December">December</option>
+					</select>
 				</td>
 			</tr>
 		</table>

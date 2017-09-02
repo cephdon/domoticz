@@ -72,7 +72,10 @@ std::string	CKodiNode::CKodiStatus::LogMessage()
 		else
 		{
 			if (m_sTitle.length()) sLogText = m_sTitle;
-			if ((m_sLabel != m_sTitle) && (m_sLabel.length())) sLogText += ", " + m_sLabel;
+			if ((m_sLabel != m_sTitle) && (m_sLabel.length())) {
+				if (sLogText.length()) sLogText += ", ";
+				sLogText += m_sLabel;
+			}
 		}
 		if (m_sYear.length()) sLogText += " " + m_sYear;
 	}
@@ -189,8 +192,8 @@ void CKodiNode::handleMessage(std::string& pMessage)
 		std::stringstream ssMessage;
 
 		if (DEBUG_LOGGING) _log.Log(LOG_NORM, "Kodi: (%s) Handling message: '%s'.", m_Name.c_str(), pMessage.c_str());
-		bool	bRetVal = jReader.parse(pMessage, root);
-		if (!bRetVal)
+		bool bRet = jReader.parse(pMessage, root);
+		if ((!bRet) || (!root.isObject()))
 		{
 			_log.Log(LOG_ERROR, "Kodi: (%s) PARSE ERROR: '%s'", m_Name.c_str(), pMessage.c_str());
 		}
@@ -284,6 +287,13 @@ void CKodiNode::handleMessage(std::string& pMessage)
 									_log.Log(LOG_NORM, "Kodi: (%s) Volume changed to %3.5f, Muted: %s.", m_Name.c_str(), iVolume, bMuted?"true":"false");
 								}
 							}
+							else if (root["method"] == "Player.OnSpeedChanged")
+							{
+								if (DEBUG_LOGGING)
+								{
+									_log.Log(LOG_NORM, "Kodi: (%s) Speed changed.", m_Name.c_str());
+								}
+							}
 							else if (DEBUG_LOGGING) _log.Log(LOG_NORM, "Kodi: (%s) Message warning, unhandled method: '%s'", m_Name.c_str(), root["method"].asCString());
 						}
 						else _log.Log(LOG_ERROR, "Kodi: (%s) Message error, params but no method: '%s'", m_Name.c_str(), pMessage.c_str());
@@ -324,6 +334,12 @@ void CKodiNode::handleMessage(std::string& pMessage)
 						{
 							if (!root["result"]["speed"].asInt())
 								m_CurrentStatus.Status(MSTAT_PAUSED);	// useful when Domoticz restarts when media aleady paused
+							if (root["result"]["speed"].asInt() && m_CurrentStatus.Status() == MSTAT_PAUSED)
+							{
+								// Buffering when playing internet streams show 0 speed but don't trigger OnPause/OnPlay so force a refresh when speed is not 0 again
+								sMessage = "{\"jsonrpc\":\"2.0\",\"method\":\"Player.GetItem\",\"id\":1003,\"params\":{\"playerid\":" + m_CurrentStatus.PlayerID() + ",\"properties\":[\"artist\",\"album\",\"year\",\"channel\",\"showtitle\",\"season\",\"episode\",\"title\"]}}";
+								handleWrite(sMessage);
+							}
 						}
 						UpdateStatus();
 						break;
@@ -362,7 +378,6 @@ void CKodiNode::handleMessage(std::string& pMessage)
 							if (m_CurrentStatus.Type() == "picture")
 							{
 								m_CurrentStatus.Status(MSTAT_PHOTO);
-								UpdateStatus();
 							}
 							if (root["result"]["item"].isMember("title"))			m_CurrentStatus.Title(root["result"]["item"]["title"].asCString());
 							if (root["result"]["item"].isMember("year"))			m_CurrentStatus.Year(root["result"]["item"]["year"].asInt());
@@ -373,6 +388,7 @@ void CKodiNode::handleMessage(std::string& pMessage)
 								sMessage = "{\"jsonrpc\":\"2.0\",\"method\":\"Player.GetProperties\",\"id\":1002,\"params\":{\"playerid\":" + m_CurrentStatus.PlayerID() + ",\"properties\":[\"live\",\"percentage\",\"speed\"]}}";
 								handleWrite(sMessage);
 							}
+							UpdateStatus();
 						}
 						break;
 					case 1004:		//Shutdown details response
@@ -384,12 +400,12 @@ void CKodiNode::handleMessage(std::string& pMessage)
 								bCanShutdown = root["result"]["canshutdown"].asBool();
 								if (bCanShutdown) sAction = "Shutdown";
 							}
-							if (root["result"].isMember("canhibernate"))
+							if (root["result"].isMember("canhibernate") && sAction != "Nothing")
 							{
 								bCanHibernate = root["result"]["canhibernate"].asBool();
 								if (bCanHibernate) sAction = "Hibernate";
 							}
-							if (root["result"].isMember("cansuspend"))
+							if (root["result"].isMember("cansuspend")&& sAction != "Nothing")
 							{
 								bCanSuspend = root["result"]["cansuspend"].asBool();
 								if (bCanSuspend) sAction = "Suspend";
@@ -459,6 +475,42 @@ void CKodiNode::handleMessage(std::string& pMessage)
 					case 2004: // signal outcome
 						if (root["result"] == "OK")
 							_log.Log(LOG_NORM, "Kodi: (%s) Playlist command '%s' at position %d accepted.", m_Name.c_str(), m_Playlist.c_str(), m_PlaylistPosition);
+						break;
+					// 2100+ messages relate to favorites triggering functionality
+					case 2100: // return favorites response
+						if (root["result"].isMember("favourites")) {
+							if (root["result"]["limits"].isMember("total"))
+							{
+								int	iFavCount = root["result"]["limits"]["total"].asInt();
+								// set play position to last entry if greater than total
+								if (m_PlaylistPosition < 0) m_PlaylistPosition = 0;
+								if (m_PlaylistPosition >= iFavCount) m_PlaylistPosition = iFavCount - 1;
+								if (iFavCount)
+									for (int i = 0; i < iFavCount; i++) {
+										if (DEBUG_LOGGING) _log.Log(LOG_NORM, "Kodi: (%s) Favourites %d is '%s', type '%s'.", m_Name.c_str(), i, root["result"]["favourites"][i]["title"].asCString(), root["result"]["favourites"][i]["type"].asCString());
+										std::string sType = root["result"]["favourites"][i]["type"].asCString();
+										if (i == m_PlaylistPosition) {
+											if (sType == "media") {
+												std::string sPath = root["result"]["favourites"][i]["path"].asCString();
+												if (DEBUG_LOGGING) _log.Log(LOG_NORM, "Kodi: (%s) Favourites %d has path '%s' and will be played.", m_Name.c_str(), i, sPath.c_str());
+												ssMessage << "{\"jsonrpc\":\"2.0\",\"method\":\"Player.Open\",\"params\":{\"item\":{\"file\":\"" << sPath << "\"}},\"id\":2101}";
+												handleWrite(ssMessage.str());
+												break;
+											}
+											else {
+												_log.Log(LOG_NORM, "Kodi: (%s) Requested Favourite ('%s') is not playable, next playable item will be selected.", m_Name.c_str(), root["result"]["favourites"][i]["title"].asCString());
+												m_PlaylistPosition++;
+											}
+										}
+									}
+								else 
+									_log.Log(LOG_NORM, "Kodi: (%s) No Favourites returned.", m_Name.c_str());
+							}
+						}
+						break;
+					case 2101: // signal outcome
+						if (root["result"] == "OK")
+							if (DEBUG_LOGGING) _log.Log(LOG_NORM, "Kodi: (%s) Favourite play request successful.", m_Name.c_str());
 						break;
 					default:
 						_log.Log(LOG_ERROR, "Kodi: (%s) Message error, unknown ID found: '%s'", m_Name.c_str(), pMessage.c_str());
@@ -544,9 +596,18 @@ void CKodiNode::handleConnect()
 			else
 			{
 				if ((DEBUG_LOGGING) ||
-					((ec.value() != 113) && (ec.value() != 111) &&
-					(ec.value() != 10060) && (ec.value() != 10061) && (ec.value() != 10064) && (ec.value() != 10061))) // Connection failed due to no response, no route or active refusal
+					(
+						(ec.value() != 113) &&
+						(ec.value() != 111) &&
+						(ec.value() != 10060) &&
+						(ec.value() != 10061) &&
+						(ec.value() != 10064) //&&
+						//(ec.value() != 10061)
+						)
+					) // Connection failed due to no response, no route or active refusal
+				{
 					_log.Log(LOG_NORM, "Kodi: (%s) Connect to '%s:%s' failed: (%d) %s", m_Name.c_str(), m_IP.c_str(), (m_Port[0] != '-' ? m_Port.c_str() : m_Port.substr(1).c_str()), ec.value(), ec.message().c_str());
+				}
 				delete m_Socket;
 				m_Socket = NULL;
 				m_CurrentStatus.Clear();
@@ -768,6 +829,14 @@ void CKodiNode::SendCommand(const std::string &command, const int iValue)
 		sMessage = "{\"jsonrpc\":\"2.0\",\"method\":\"Playlist.Clear\",\"params\":{\"playlistid\":0},\"id\":2000}";
 	}
 
+	if (command == "favorites")
+	{
+		// Favorites are effectively a playlist but rewuire different handling to start items playing
+		sKodiCall = "Favourites";
+		m_PlaylistPosition = iValue;
+		sMessage = "{\"jsonrpc\":\"2.0\",\"method\":\"Favourites.GetFavourites\",\"params\":{\"properties\":[\"path\"]},\"id\":2100}";
+	}
+
 	if (command == "execute")
 	{
 		sKodiCall = "Execute Addon " + m_ExecuteCommand;
@@ -941,7 +1010,7 @@ void CKodi::Restart()
 
 bool CKodi::WriteToHardware(const char *pdata, const unsigned char length)
 {
-	tRBUF *pSen = (tRBUF*)pdata;
+	const tRBUF *pSen = reinterpret_cast<const tRBUF*>(pdata);
 
 	unsigned char packettype = pSen->ICMND.packettype;
 
@@ -955,33 +1024,40 @@ bool CKodi::WriteToHardware(const char *pdata, const unsigned char length)
 	{
 		if ((*itt)->m_DevID == DevID)
 		{
-			int iParam = pSen->LIGHTING2.level;
-			switch (pSen->LIGHTING2.cmnd)
-			{
-			case light2_sOff:
-			case light2_sGroupOff:
-				return (*itt)->SendShutdown();
-			case gswitch_sStop:
-				(*itt)->SendCommand("stop");
-				return true;
-			case gswitch_sPlay:
-				(*itt)->SendCommand("play");
-				return true;
-			case gswitch_sPause:
-				(*itt)->SendCommand("pause");
-				return true;
-			case gswitch_sSetVolume:
-				(*itt)->SendCommand("setvolume", iParam);
-				return true;
-			case gswitch_sPlayPlaylist:
-				(*itt)->SendCommand("playlist", iParam);
-				return true;
-			case gswitch_sExecute:
-				(*itt)->SendCommand("execute", iParam);
-				return true;
-			default:
-				return true;
+			if ((*itt)->IsOn()) {
+				int iParam = pSen->LIGHTING2.level;
+				switch (pSen->LIGHTING2.cmnd)
+				{
+				case light2_sOff:
+				case light2_sGroupOff:
+					return (*itt)->SendShutdown();
+				case gswitch_sStop:
+					(*itt)->SendCommand("stop");
+					return true;
+				case gswitch_sPlay:
+					(*itt)->SendCommand("play");
+					return true;
+				case gswitch_sPause:
+					(*itt)->SendCommand("pause");
+					return true;
+				case gswitch_sSetVolume:
+					(*itt)->SendCommand("setvolume", iParam);
+					return true;
+				case gswitch_sPlayPlaylist:
+					(*itt)->SendCommand("playlist", iParam);
+					return true;
+				case gswitch_sPlayFavorites:
+					(*itt)->SendCommand("favorites", iParam);
+					return true;
+				case gswitch_sExecute:
+					(*itt)->SendCommand("execute", iParam);
+					return true;
+				default:
+					return true;
+				}
 			}
+			else
+				_log.Log(LOG_NORM, "Kodi: (%s) Command not sent, Device is 'Off'.", (*itt)->m_Name.c_str());
 		}
 	}
 
@@ -1100,7 +1176,7 @@ void CKodi::UnloadNodes()
 	m_ios.stop();	// stop the service if it is running
 	sleep_milliseconds(100);
 
-	while ((!m_pNodes.empty()) || (!m_ios.stopped()) && (iRetryCounter < 15))
+	while (((!m_pNodes.empty()) || (!m_ios.stopped())) && (iRetryCounter < 15))
 	{
 		std::vector<boost::shared_ptr<CKodiNode> >::iterator itt;
 		for (itt = m_pNodes.begin(); itt != m_pNodes.end(); ++itt)
@@ -1167,6 +1243,11 @@ namespace http {
 	namespace server {
 		void CWebServer::Cmd_KodiGetNodes(WebEmSession & session, const request& req, Json::Value &root)
 		{
+			if (session.rights != 2)
+			{
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
+			}
 			std::string hwid = request::findValue(&req, "idx");
 			if (hwid == "")
 				return;
@@ -1203,8 +1284,8 @@ namespace http {
 		{
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return;
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 			std::string hwid = request::findValue(&req, "idx");
 			std::string mode1 = request::findValue(&req, "mode1");
@@ -1221,7 +1302,7 @@ namespace http {
 				return;
 			if (pBaseHardware->HwdType != HTYPE_Kodi)
 				return;
-			CKodi *pHardware = (CKodi*)pBaseHardware;
+			CKodi *pHardware = reinterpret_cast<CKodi*>(pBaseHardware);
 
 			root["status"] = "OK";
 			root["title"] = "KodiSetMode";
@@ -1238,8 +1319,8 @@ namespace http {
 		{
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return;
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string hwid = request::findValue(&req, "idx");
@@ -1259,7 +1340,7 @@ namespace http {
 				return;
 			if (pBaseHardware->HwdType != HTYPE_Kodi)
 				return;
-			CKodi *pHardware = (CKodi*)pBaseHardware;
+			CKodi *pHardware = reinterpret_cast<CKodi*>(pBaseHardware);
 
 			root["status"] = "OK";
 			root["title"] = "KodiAddNode";
@@ -1270,8 +1351,8 @@ namespace http {
 		{
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return;
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string hwid = request::findValue(&req, "idx");
@@ -1293,7 +1374,7 @@ namespace http {
 				return;
 			if (pBaseHardware->HwdType != HTYPE_Kodi)
 				return;
-			CKodi *pHardware = (CKodi*)pBaseHardware;
+			CKodi *pHardware = reinterpret_cast<CKodi*>(pBaseHardware);
 
 			int NodeID = atoi(nodeid.c_str());
 			root["status"] = "OK";
@@ -1305,8 +1386,8 @@ namespace http {
 		{
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return;
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string hwid = request::findValue(&req, "idx");
@@ -1322,7 +1403,7 @@ namespace http {
 				return;
 			if (pBaseHardware->HwdType != HTYPE_Kodi)
 				return;
-			CKodi *pHardware = (CKodi*)pBaseHardware;
+			CKodi *pHardware = reinterpret_cast<CKodi*>(pBaseHardware);
 
 			int NodeID = atoi(nodeid.c_str());
 			root["status"] = "OK";
@@ -1334,8 +1415,8 @@ namespace http {
 		{
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return;
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string hwid = request::findValue(&req, "idx");
@@ -1347,7 +1428,7 @@ namespace http {
 				return;
 			if (pBaseHardware->HwdType != HTYPE_Kodi)
 				return;
-			CKodi *pHardware = (CKodi*)pBaseHardware;
+			CKodi *pHardware = reinterpret_cast<CKodi*>(pBaseHardware);
 
 			root["status"] = "OK";
 			root["title"] = "KodiClearNodes";
@@ -1376,9 +1457,16 @@ namespace http {
 				{
 					switch (hType) {
 					case HTYPE_Kodi:
+					{
 						CKodi	Kodi(HwID);
 						Kodi.SendCommand(idx, sAction);
 						break;
+					}
+#ifdef ENABLE_PYTHON
+					case HTYPE_PythonPlugin:
+						Cmd_PluginCommand(session, req, root);
+						break;
+#endif
 						// put other players here ...
 					}
 				}

@@ -21,8 +21,10 @@ public:
 	void SetProgramState(const int newState);
 private:
 	void SendSetPointSensor(const unsigned char Idx, const float Temp, const std::string &defaultname);
+	void UpdateSwitch(const unsigned char Idx, const bool bOn, const std::string &defaultname);
 	void UpdateSmokeSensor(const unsigned char Idx, const bool bOn, const std::string &defaultname);
 	bool SetAway(const unsigned char Idx, const bool bIsAway);
+	bool SetManualEcoMode(const unsigned char Idx, const bool bIsManualEcoMode);
 	bool Login();
 	void Logout();
 

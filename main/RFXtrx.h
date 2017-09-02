@@ -8,11 +8,11 @@
 //
 
 /*
-
-Copyright 2011-2015, RFXCOM
+                                                                   
+Copyright 2011-2016, RFXCOM
 
 ALL RIGHTS RESERVED. This code is owned by RFXCOM, and is protected under
-Netherlands Copyright Laws and Treaties and shall be subject to the
+Netherlands Copyright Laws and Treaties and shall be subject to the 
 exclusive jurisdiction of the Netherlands Courts. The information from this
 file may freely be used to create programs to exclusively interface with
 RFXCOM products only. Any other use or unauthorized reprint of this material
@@ -27,265 +27,306 @@ portions of this file.
 */
 
 /*
-SDK version 9.04
-Lighting5 Legrand CAD added
-msg6-HC HomeConfort protocol enable added
+SDK version 9.15
+	BlindsT13 - Screenline angle change added
+
+SDK version 9.14
+	Lighting5 - Kangtai added
+
+SDK version 9.13
+	BlindsT13 - Screenline added
+
+SDK version 9.12
+	Thermostat4 updated
+
+SDK version 9.11
+	FAN - Westinghouse fan added
+	Security1 - RM174RF added
+	Thermostat4 added
+
+SDK version 9.10
+	FAN - SEAV remote added
+
+SDK version 9.09
+	Lighting5 - MDremote108 added
+
+SDK version 9.08
+	CARTELECTRONIC TIC and Encoder added
+	Lighting5 - Livolo dim/scene added
+
+SDK version 9.07
+	Lighting5 IT added
+	BlindsT12 Confexx added
+
+SDK version 9.06
+	Lighting1 HQ COCO-20 added
+	Lighting5 Avantek added
+	BlindsT11 ASP added
+
+SDK version 9.05
+	Itho CVE RFT fan added
+	LucciAir fan added
+	HUM3 Inovalley S80 plant humidity sensor added
+
+SDK version 9.04A
+	Lighting5 Legrand CAD added
+	msg6-HC HomeConfort protocol enable added
 
 SDK version 9.03
-MDremote version 107 added
+	MDremote version 107 added
 
 SDK version 9.02
-Home Confort added
+	Home Confort added
 
 SDK version 9.01
-RFY - ASA blinds added
+	RFY - ASA blinds added
 
 SDK version 9.00
-Lighting5 - sTypeRGB432W added
-ICMND - msg1 changed to freqsel
-ICMND - msg2 changed to xmitpwr
+	Lighting5 - sTypeRGB432W added
+	ICMND - msg1 changed to freqsel
+	ICMND - msg2 changed to xmitpwr
 
 SDK version 8.03A
-Thermostat3 - Mertik G6R-H4S added
+	Thermostat3 - Mertik G6R-H4S added
 
 SDK version 8.03
-Subtype for Dolat blinds corrected, was 0x10 changed to 0xA
+	Subtype for Dolat blinds corrected, was 0x10 changed to 0xA
 
 SDK version 8.02
-Blinds Dolat added
-Thermostat3 - Mertik G6R_H4TD added
+	Blinds Dolat added
+	Thermostat3 - Mertik G6R_H4TD added
 
 SDK version 8.01
-Blinds Sunpery changed
+	Blinds Sunpery changed
 
 SDK version 8.00
-Security2 - KeeLoq added
-Envivo Chime added
-msg6 - mode bits added
-sTypeUselectplus added
-Blinds Sunpery added
-TH14,RAIN7,WIND7 - Alecto WS4500 added
+	Security2 - KeeLoq added
+	Envivo Chime added
+	msg6 - mode bits added
+	sTypeUselectplus added
+	Blinds Sunpery added
+	TH14,RAIN7,WIND7 - Alecto WS4500 added
 
 SDK version 7.02/7.03
-msg3_RFU changed to msg3_IMAGINTRONIX
-IRESPONSE.RFU6enabled changed to IRESPONSE.IMAGINTRONIXenabled
+	msg3_RFU changed to msg3_IMAGINTRONIX
+	IRESPONSE.RFU6enabled changed to IRESPONSE.IMAGINTRONIXenabled
 
 SDK version 7.01
-SelectPlus200689103 Black Chime added
+	SelectPlus200689103 Black Chime added
 
 SDK version 7.00
-TEMP7 - TSS330 added and TH9 – TSS320 added
-BlindsT8 = Chamberlain CS4330CN added
-SelectPlus200689101 White Chime added
-Interface command - start receiver added
-IRESPONSE size increased to 0x14
+	TEMP7 - TSS330 added and TH9 – TSS320 added
+	BlindsT8 = Chamberlain CS4330CN added
+	SelectPlus200689101 White Chime added
+	Interface command - start receiver added
+	IRESPONSE size increased to 0x14
 
 SDK version 6.27
-Livolo Appliance 1-10 added
-Somfy RFY commands: Enable sun+wind & Disable sun added
-Smartwares radiator valve added
+	Livolo Appliance 1-10 added
+	Somfy RFY commands: Enable sun+wind & Disable sun added
+	Smartwares radiator valve added
 
 SDK version 6.26
-TH13 - Alecto WS1700 and compatibles added
+	TH13 - Alecto WS1700 and compatibles added
 
 SDK version 6.25
-sTypeByronMP001 added
-sTypeTEMP11 added
-sTypeTRC02_2 added
-THB1 also used for BTHGN129
+	sTypeByronMP001 added
+	sTypeTEMP11 added
+	sTypeTRC02_2 added
+	THB1 also used for BTHGN129
 
 SDK version 6.24
-Lighting5 - Aoke realy added
+	Lighting5 - Aoke realy added
 
 SDK version 6.23
-RFY List remotes added
+	RFY List remotes added
 
 SDK version 6.22
-RFY venetian commands added < 0.5 and > 2 sec up/down)
+	RFY venetian commands added < 0.5 and > 2 sec up/down)
 
 SDK version 6.21
-Temp/Humidity - TH12 soil sensor added
+	Temp/Humidity - TH12 soil sensor added
 
 SDK version 6.20
-Lighting2 - Kambrook added
+	Lighting2 - Kambrook added
 
 SDK version 6.19
-msg3_RFY reversed back to msg3_RFU
+	msg3_RFY reversed back to msg3_RFU
 
 SDK version 6.18
-RFY structure added
-BlindsT8 moved to RFY
-msg3_RFY added (not used)
-undecoded sTypeUrfy added
-Interface response "sTypeUnknownRFYremote" and "sTypeExtError" added
+	RFY structure added
+	BlindsT8 moved to RFY
+	msg3_RFY added (not used)
+	undecoded sTypeUrfy added
+	Interface response "sTypeUnknownRFYremote" and "sTypeExtError" added
 
 SDK version 6.17
-Blinds1 unitcode and id4 corrected
+	Blinds1 unitcode and id4 corrected
 
 SDK version 6.16
-BlindsT8 RFY added with commands 0 to 9
+	BlindsT8 RFY added with commands 0 to 9
 
 SDK version 6.15
-BLINDS1 id4 added
+	BLINDS1 id4 added
 
 SDK version 6.14
-BlindsT7 - Forest added
+	BlindsT7 - Forest added
 
 SDK version 6.13
-(skipped, to make version equal to SDK.pdf)
+	(skipped, to make version equal to SDK.pdf)
 
 SDK version 6.12
-Lighting1 - Energenie5 added
-Lighting1 - COCO GDR2-2000R added
-sTypeBlindsT6 - DC106, YOOHA, Rohrmotor24 RMF added
-RAW transmit added
+	Lighting1 - Energenie5 added
+	Lighting1 - COCO GDR2-2000R added
+	sTypeBlindsT6 - DC106, YOOHA, Rohrmotor24 RMF added
+	RAW transmit added
 
 SDK version 6.11
-Lighting5 - RGB driver TRC02 added
-Lighting6 - Blyss rfu replaced by seqnbr2
-Endian check added
+	Lighting5 - RGB driver TRC02 added
+	Lighting6 - Blyss rfu replaced by seqnbr2
+	Endian check added
 
 SDK version 6.10
-Security1 - SA30 added
-TEMP_HUM - TH11 EW109 added
-POWER - Revolt added
+	Security1 - SA30 added
+	TEMP_HUM - TH11 EW109 added
+	POWER - Revolt added
 
 SDK version 6.09
-BBQ structure added
+	BBQ structure added
 
 SDK version 6.08
-FAN structure and pTypeFan and sTypeSiemensSF01 added
-Lighting5 - Livolo added
+	FAN structure and pTypeFan and sTypeSiemensSF01 added
+	Lighting5 - Livolo added
 
 SDK version 6.07b
-in the IRESPONSE struct: RFU5enabled changed to SXenabled
+	in the IRESPONSE struct: RFU5enabled changed to SXenabled
 SDK version 6.07a
-#define msg3_RFU5 0x20   changed to   #define msg3_SX 0x20
+	#define msg3_RFU5 0x20   changed to   #define msg3_SX 0x20
 
 SDK version 6.07
-Lighting5 colour modes added for LWRF
-TEMP_RAIN structure and pTypeTEMP_RAIN added for WS1200 - Temperature and rain sensor
-CHIME structure and pTypeChime added for Byron SX Chime
+	Lighting5 colour modes added for LWRF
+	TEMP_RAIN structure and pTypeTEMP_RAIN added for WS1200 - Temperature and rain sensor
+	CHIME structure and pTypeChime added for Byron SX Chime
 
 SDK version 6.06a
-RFU4 changed to RSLenabled in IRESPONSE
+    RFU4 changed to RSLenabled in IRESPONSE
 
 SDK version 6.06
-Lighting1 Energenie added
-Lighting5 MDREMOTE LED dimmer added
-Lighting5 RSL2 added
-msg3_RSL - Enable RSL protocol added
-#define sTypeUrsl 0x0E = un-decoded Conrad RSL added
+	Lighting1 Energenie added
+	Lighting5 MDREMOTE LED dimmer added
+	Lighting5 RSL2 added
+	msg3_RSL - Enable RSL protocol added
+	#define sTypeUrsl 0x0E = un-decoded Conrad RSL added
 
 SDK version 6.02b
-msg3-5 replaced by MODEbits in IRESPONSE structure
-LIGHTING4 enabled added in struct MODEbits
+	msg3-5 replaced by MODEbits in IRESPONSE structure
+	LIGHTING4 enabled added in struct MODEbits
 
 SDK version 6.02a
-#define sTypeBlindsT5 0x5  added
+	#define sTypeBlindsT5 0x5  added
 
 SDK version 6.02
-sTypeTH10 0xA   //Rubicson added
+	sTypeTH10 0xA   //Rubicson added
 
 SDK version 6.01
-Copyright message updated
+  Copyright message updated
 
 SDK version 5.03
-RAIN6 added
-Raex BlindsT4 added
-protocol enable/disable msg3_LIGHTING4 added
-Interface Message - Wrong Command added
+	RAIN6 added
+	Raex BlindsT4 added
+	protocol enable/disable msg3_LIGHTING4 added
+	Interface Message - Wrong Command added
 
 SDK version 5.01
-baroForecast values added
+	baroForecast values added
 
 SDK version 5.00
-Commands removed from Interface control:
-cmdENABLEALL 0x04, cmdUNDEC 0x05
-cmdDISX10 0x10   to    cmdDISFS20 0x1C
-CM180i CURRENT_ENERGY - ELEC4 added
-code for pTypeGAS and pTypeWATER changed (not yet used)
+	Commands removed from Interface control:
+		cmdENABLEALL 0x04, cmdUNDEC 0x05
+		cmdDISX10 0x10   to    cmdDISFS20 0x1C
+	CM180i CURRENT_ENERGY - ELEC4 added
+	code for pTypeGAS and pTypeWATER changed (not yet used) 
 
 SDK version 4.36
-security - #define sStatusIRbeam 0x8 added
+	security - #define sStatusIRbeam 0x8 added
 
 SDK version 4.35
-defines added for commands
-union tRBUF is now typedef
-filler in REMOTE changed to cmndtype
-sTypeDigimax1 changed to sTypeDigimaxShort
+	defines added for commands
+	union tRBUF is now typedef
+	filler in REMOTE changed to cmndtype
+	sTypeDigimax1 changed to sTypeDigimaxShort
 
 SDK version 4.34
-BlindsT2 BlindsT3 added
+	BlindsT2 BlindsT3 added
 
 SDK version 4.32
-BBSB new type added
+	BBSB new type added
 
 SDK version 4.31
-Modebits updated
+	Modebits updated
 
 SDK version 4.30
-Energy sensor ELEC3 - CM180 added
+	Energy sensor ELEC3 - CM180 added
 
 SDK version 4.29
-sTypeTEMP10 for TFA 30.3133 added
-#define sTypeATI2 0x1   changed to    #define sTypeATIplus 0x1
-#define sTypeATIrw2 0x4  added
+  sTypeTEMP10 for TFA 30.3133 added
+	#define sTypeATI2 0x1   changed to    #define sTypeATIplus 0x1
+	#define sTypeATIrw2 0x4  added
 
 SDK version 4.28
-undecoded types 0x0F-0x12 added
+  undecoded types 0x0F-0x12 added
 
 SDK version 4.27
-Lighting1 - Philips SBC added
-Lighting6 - Blyss added
-BLINDS1 Rollertrol renamed to BlindsT0 and BlindsT1 added
-msg4_ROLLERTROL renamed to msg4_BLINDST0
-msg4_BLINDST1 added
-MODEbits.rollertrolenabled renamed to MODEbits.BLINDST0enabled
-MODEbits.BLINDST1enabled added
-undecoded types:
-sTypeUrollertrol renamed to sTypeUblinds
-sTypeUrubicson,sTypeUfineoffset and sTypeUae added
+  Lighting1 - Philips SBC added
+	Lighting6 - Blyss added
+	BLINDS1 Rollertrol renamed to BlindsT0 and BlindsT1 added
+	msg4_ROLLERTROL renamed to msg4_BLINDST0
+	msg4_BLINDST1 added
+	MODEbits.rollertrolenabled renamed to MODEbits.BLINDST0enabled
+	MODEbits.BLINDST1enabled added
+  undecoded types:
+		sTypeUrollertrol renamed to sTypeUblinds
+		sTypeUrubicson,sTypeUfineoffset and sTypeUae added
 
 SDK version 4.26
-TEMP-HUM TH9 Viking 02035,02038 added
-TEMP TEMP9 RUBiCSON added
-Security tamper status changed
-Security1 Meiantech, msg5_MEI and cmdDISMEI added
-Disable Koppla removed
+	TEMP-HUM TH9 Viking 02035,02038 added
+	TEMP TEMP9 RUBiCSON added
+	Security tamper status changed
+	Security1 Meiantech, msg5_MEI and cmdDISMEI added
+	Disable Koppla removed
 
 SDK version 4.23
-4 sensors WS2300 added
+	4 sensors WS2300 added
 
 SDK version 4.22
-Viking temperature sensor TEMP7 added
-Blinds1 - RollerTrol added
+	Viking temperature sensor TEMP7 added
+	Blinds1 - RollerTrol added
 
 SDK version 4.21
-Lighting1 - RisingSun added
+  Lighting1 - RisingSun added
 
 SDK version 4.19
-TS15C added
+	TS15C added
 
 SDK version 4.18
-UPM wind and rain added
+	UPM wind and rain added
 
 SDK version 4.17
-FS20 added
+	FS20 added
 
 SDK version 4.15
-Lighting5 - EMW100 added
+	Lighting5 - EMW100 added
 
 SDK version 4.14
-Lighting5 - level added
+	Lighting5 - level added
 
 SDK version 4.13
-added sTypeTH8 Esic Temp-Hum sensor
-Lighting6 - Novatis removed
+	added sTypeTH8 Esic Temp-Hum sensor
+	Lighting6 - Novatis removed
 
 SDK version 4.9
-added: #define recType43392 0x52
-changed; #define recType43392 0x53  to   #define trxType43392 0x53
+	added: #define recType43392 0x52
+	changed; #define recType43392 0x53  to   #define trxType43392 0x53
 */
 
 //types for Interface Control
@@ -307,6 +348,9 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define cmd835		0x59 // select 868.35MHz ASK in the 868 transceiver
 #define cmd835F		0x5A // select 868.35MHz FSK in the 868 transceiver
 #define cmd895		0x5B // select 868.95MHz in the 868 transceiver
+#define cmd830F_P	0x5C // select 868.30MHz FSK PKT in the 868 transceiver
+#define cmd835F_P	0x5D // select 868.35MHz FSK PKT in the 868 transceiver
+#define cmd840F_P	0x5E // select 868.40MHz FSK PKT in the 868 transceiver
 
 #define pTypeInterfaceMessage 0x01
 #define sTypeInterfaceResponse 0x00
@@ -327,6 +371,10 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define recType86835 0x59
 #define recType86835FSK 0x5A
 #define recType86895 0x5B
+#define recType86830FSK_PKT 0x5C
+#define recType86835FSK_PKT 0x5D
+#define recType86840FSK_PKT 0x5E
+#define trxType43450 0x5F
 
 #define msg3_AE 0x01			//AE Blyss
 #define msg3_RUBICSON 0x02		//Rubicson,Lacrosse, Banggood
@@ -407,6 +455,7 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define sTypeEnergenie 0x8
 #define sTypeEnergenie5 0x9
 #define sTypeGDR2 0x0A
+#define sTypeHQ 0x0B
 
 #define light1_sOff 0x0
 #define light1_sOn 0x1
@@ -464,6 +513,10 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define sTypeRGB432W 0x0B
 #define sTypeMDREMOTE107 0x0C
 #define sTypeLegrandCAD 0x0D
+#define sTypeAvantek 0x0E
+#define sTypeIT 0x0F
+#define sTypeMDREMOTE108 0x10
+#define sTypeKangtai 0x11
 
 #define light5_sOff 0x0
 #define light5_sOn 0x1
@@ -498,15 +551,16 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define light5_sModeMin 0xA
 #define light5_sLivoloAllOff 0x00
 #define light5_sLivoloGang1Toggle 0x01
-#define light5_sLivoloGang2Toggle 0x02	//dim+ for dimmer
-#define light5_sLivoloGang3Toggle 0x03	//dim- for dimmer
-#define light5_sLivoloGang4Toggle 0x04
-#define light5_sLivoloGang5Toggle 0x05
-#define light5_sLivoloGang6Toggle 0x06
-#define light5_sLivoloGang7Toggle 0x07
-#define light5_sLivoloGang8Toggle 0x08
-#define light5_sLivoloGang9Toggle 0x09
-#define light5_sLivoloGang10Toggle 0x0A
+#define light5_sLivoloGang2Toggle 0x02
+#define light5_sLivoloDimR1plus 0x02
+#define light5_sLivoloGang3Toggle 0x03
+#define light5_sLivoloDimR1min 0x03
+#define light5_sLivoloScene1R1 0x04
+#define light5_sLivoloScene2R1 0x05
+#define light5_sLivoloDimR2plus 0x06
+#define light5_sLivoloDimR2min 0x07
+#define light5_sLivoloScene1R2 0x08
+#define light5_sLivoloScene2R2 0x09
 #define light5_sRGBoff 0x00
 #define light5_sRGBon 0x01
 #define light5_sRGBbright 0x02
@@ -548,12 +602,37 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 
 #define pTypeFan 0x17
 #define sTypeSiemensSF01 0x0
+#define sTypeItho 0x1
+#define sTypeLucciAir 0x2
+#define sTypeSeavTXS4 0x3
+#define sTypeWestinghouse 0x4
 #define fan_sTimer 0x1
 #define fan_sMin 0x2
 #define fan_sLearn 0x3
 #define fan_sPlus 0x4
 #define fan_sConfirm 0x5
 #define fan_sLight 0x6
+#define fan_Itho1 0x1
+#define fan_Itho2 0x2
+#define fan_Itho3 0x3
+#define fan_IthoTimer 0x4
+#define fan_IthoNotAtHome 0x5
+#define fan_IthoLearn 0x6
+#define fan_IthoEraseAll 0x7
+#define fan_LucciHi 0x1
+#define fan_LucciMed 0x2
+#define fan_LucciLow 0x3
+#define fan_LucciOff 0x4
+#define fan_LucciLight 0x5
+#define fan_T1 0x1
+#define fan_T2 0x2
+#define fan_T3 0x3
+#define fan_T4 0x4
+#define fan_WestinghouseHi 0x1
+#define fan_WestinghouseMed 0x2
+#define fan_WestinghouseLow 0x3
+#define fan_WestinghouseOff 0x4
+#define fan_WestinghouseLight 0x5
 
 //types for Curtain
 #define pTypeCurtain 0x18
@@ -576,6 +655,9 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define sTypeBlindsT8 0x8	//Chamberlain CS4330CN
 #define sTypeBlindsT9 0x9	//Sunpery
 #define sTypeBlindsT10 0xA	//Dolat DLM-1
+#define sTypeBlindsT11 0xB	//ASP
+#define sTypeBlindsT12 0xC	//Confexx
+#define sTypeBlindsT13 0xD	//Screenline
 
 #define blinds_sOpen 0x0
 #define blinds_sClose 0x1
@@ -588,14 +670,16 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define blinds_sLeft 0x8
 #define blinds_sRight 0x9
 #define blinds_s9ChangeDirection 0x6
-#define blinds_s9ImA = 0x7
-#define blinds_s9ImCenter = 0x8
-#define blinds_s9ImB = 0x9
-#define blinds_s9EraseCurrentCh = 0xA
-#define blinds_s9EraseAllCh = 0xB
-#define blinds_s10LearnMaster = 0x4
-#define blinds_s10EraseCurrentCh = 0x5
-#define blinds_s10ChangeDirection = 0x6
+#define blinds_s9ImA 0x7
+#define blinds_s9ImCenter 0x8
+#define blinds_s9ImB 0x9
+#define blinds_s9EraseCurrentCh 0xA
+#define blinds_s9EraseAllCh 0xB
+#define blinds_s10LearnMaster 0x4
+#define blinds_s10EraseCurrentCh 0x5
+#define blinds_s10ChangeDirection 0x6
+#define blinds_s13anglePlus 0x4
+#define blinds_s13angleMinus 0x5
 
 //types for RFY
 #define pTypeRFY 0x1A
@@ -644,6 +728,7 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define sTypePowercodeAux 0x07		//Visonic PowerCode sensor - auxiliary contact
 #define sTypeMeiantech 0x8			//Meiantech
 #define sTypeSA30 0x9				//SA30 smoke detector
+#define sTypeRM174RF 0xA			//RM174RF smoke detector
 
 //status security
 #define sStatusNormal 0x0
@@ -738,6 +823,15 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define thermostat3_On2nd 0x5
 #define thermostat3_sStop 0x6
 
+#define pTypeThermostat4 0x43
+#define sTypeMCZ1 0x0	//MCZ 1 fan model
+#define sTypeMCZ2 0x1	//MCZ 2 fan model
+#define sTypeMCZ3 0x2	//MCZ 3 fan model
+#define thermostat4_sOff 0x0
+#define thermostat4_sManual 0x1
+#define thermostat4_sAuto 0x2
+#define thermostat4_sEco 0x3
+
 //types for Radiator valve
 #define pTypeRadiator1 0x48
 #define sTypeSmartwares 0x0	//Homewizard smartwares
@@ -772,6 +866,7 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 #define pTypeHUM 0x51
 #define sTypeHUM1 0x1  //LaCrosse TX3
 #define sTypeHUM2 0x2  //LaCrosse WS2300
+#define sTypeHUM3 0x03  //Inovalley S80 plant humidity sensor
 
 //status types for humidity
 #define humstat_normal 0x0
@@ -867,6 +962,11 @@ changed; #define recType43392 0x53  to   #define trxType43392 0x53
 //types for water
 #define pTypeWATER 0x5F
 
+//types for CARTELECTRONIC
+#define pTypeCARTELECTRONIC 0x60
+#define sTypeTIC 0x1
+#define sTypeCEencoder 0x2
+
 //RFXSensor
 #define pTypeRFXSensor 0x70
 #define sTypeRFXSensorTemp 0x0
@@ -921,7 +1021,7 @@ typedef union tRBUF {
 		BYTE	msg2;	//firmware version
 
 #ifdef IS_BIG_ENDIAN
-						//BYTE	msg3;
+		//BYTE	msg3;
 		BYTE	UNDECODEDenabled : 1;
 		BYTE	IMAGINTRONIXenabled : 1;
 		BYTE	SXenabled : 1;
@@ -951,17 +1051,17 @@ typedef union tRBUF {
 		BYTE	ARCenabled : 1;
 		BYTE	X10enabled : 1; //note: keep this order
 
-								//BYTE    msg6;
-		BYTE    MSG6Reserved7 : 1;
-		BYTE    MSG6Reserved6 : 1;
-		BYTE    MSG6Reserved5 : 1;
-		BYTE    MSG6Reserved4 : 1;
-		BYTE    MSG6Reserved3 : 1;
-		BYTE    MSG6Reserved2 : 1;
+		//BYTE    msg6;
+        BYTE    MSG6Reserved7 : 1;
+        BYTE    MSG6Reserved6 : 1;
+        BYTE    MSG6Reserved5 : 1;
+        BYTE    MSG6Reserved4 : 1;
+        BYTE    MSG6Reserved3 : 1;
+        BYTE    MSG6Reserved2 : 1;
 		BYTE    HCEnabled : 1;
-		BYTE    KEELOQenabled : 1;
+        BYTE    KEELOQenabled : 1;
 #else
-						//BYTE	msg3;
+		//BYTE	msg3;
 		BYTE	AEenabled : 1;
 		BYTE	RUBICSONenabled : 1;
 		BYTE	FINEOFFSETenabled : 1;
@@ -991,27 +1091,27 @@ typedef union tRBUF {
 		BYTE	ATIenabled : 1;
 		BYTE	VISONICenabled : 1;
 
-		//BYTE	msg6;
-		BYTE    KEELOQenabled : 1;
+        //BYTE	msg6;
+        BYTE    KEELOQenabled : 1;
 		BYTE    HCEnabled : 1;
-		BYTE    MSG6Reserved2 : 1;
-		BYTE    MSG6Reserved3 : 1;
-		BYTE    MSG6Reserved4 : 1;
-		BYTE    MSG6Reserved5 : 1;
-		BYTE    MSG6Reserved6 : 1;
-		BYTE    MSG6Reserved7 : 1;
+        BYTE    MSG6Reserved2 : 1;
+        BYTE    MSG6Reserved3 : 1;
+        BYTE    MSG6Reserved4 : 1;
+        BYTE    MSG6Reserved5 : 1;
+        BYTE    MSG6Reserved6 : 1;
+        BYTE    MSG6Reserved7 : 1;
 #endif
 
 		BYTE	msg7;
 		BYTE	msg8;
 		BYTE	msg9;
 		BYTE	msg10;
-		BYTE	msg11;
-		BYTE	msg12;
-		BYTE	msg13;
-		BYTE	msg14;
-		BYTE	msg15;
-		BYTE	msg16;
+        BYTE	msg11;
+        BYTE	msg12;
+        BYTE	msg13;
+        BYTE	msg14;
+        BYTE	msg15;
+        BYTE	msg16;
 	} IRESPONSE;
 
 	struct {
@@ -1190,7 +1290,7 @@ typedef union tRBUF {
 		BYTE	rssi : 4;
 		BYTE	filler : 4;
 #else
-		BYTE	filler : 4;
+		BYTE	filler  : 4;
 		BYTE	rssi : 4;
 #endif
 	} CHIME;
@@ -1208,7 +1308,7 @@ typedef union tRBUF {
 		BYTE	rssi : 4;
 		BYTE	filler : 4;
 #else
-		BYTE	filler : 4;
+		BYTE	filler  : 4;
 		BYTE	rssi : 4;
 #endif
 	} FAN;
@@ -1446,6 +1546,34 @@ typedef union tRBUF {
 		BYTE	packettype;
 		BYTE	subtype;
 		BYTE	seqnbr;
+		BYTE	unitcode1;
+		BYTE	unitcode2;
+		BYTE	unitcode3;
+		BYTE	beep;
+		BYTE	fan1_speed;
+#ifdef IS_BIG_ENDIAN
+		BYTE	fan3_speed : 4;
+		BYTE	fan2_speed : 4;
+#else
+		BYTE	fan2_speed : 4;
+		BYTE	fan3_speed : 4;
+#endif
+		BYTE	flame_power;
+		BYTE	mode;
+#ifdef IS_BIG_ENDIAN
+		BYTE	rssi : 4;
+		BYTE	filler : 4;
+#else
+		BYTE	filler : 4;
+		BYTE	rssi : 4;
+#endif
+	} THERMOSTAT4;
+
+	struct {
+		BYTE	packetlength;
+		BYTE	packettype;
+		BYTE	subtype;
+		BYTE	seqnbr;
 		BYTE	id1;
 		BYTE	id2;
 		BYTE	id3;
@@ -1546,7 +1674,7 @@ typedef union tRBUF {
 		BYTE	seqnbr;
 		BYTE	id1;
 		BYTE	id2;
-		BYTE	humidity;
+		BYTE	humidity; 
 		BYTE	humidity_status;
 #ifdef IS_BIG_ENDIAN
 		BYTE	rssi : 4;
@@ -1569,7 +1697,7 @@ typedef union tRBUF {
 		BYTE	temperatureh : 7;
 
 		BYTE	temperaturel;
-		BYTE	humidity;
+		BYTE	humidity; 
 		BYTE	humidity_status;
 
 		BYTE	rssi : 4;
@@ -1579,7 +1707,7 @@ typedef union tRBUF {
 		BYTE	tempsign : 1;
 
 		BYTE	temperaturel;
-		BYTE	humidity;
+		BYTE	humidity; 
 		BYTE	humidity_status;
 
 		BYTE	battery_level : 4;
@@ -1621,7 +1749,7 @@ typedef union tRBUF {
 		BYTE	tempsign : 1;
 #endif
 		BYTE	temperaturel;
-		BYTE	humidity;
+		BYTE	humidity; 
 		BYTE	humidity_status;
 		BYTE	baroh;
 		BYTE	barol;
@@ -1828,29 +1956,29 @@ typedef union tRBUF {
 	} CURRENT_ENERGY;
 
 	struct {
-		BYTE	packetlength;
-		BYTE	packettype;
-		BYTE	subtype;
-		BYTE	seqnbr;
-		BYTE	id1;
-		BYTE	id2;
-		BYTE	voltage;
-		BYTE	currentH;
-		BYTE	currentL;
-		BYTE	powerH;
-		BYTE	powerL;
-		BYTE	energyH;
-		BYTE	energyL;
-		BYTE	pf;
-		BYTE	freq;
+        BYTE	packetlength;
+        BYTE	packettype;
+        BYTE	subtype;
+        BYTE	seqnbr;
+        BYTE	id1;
+        BYTE	id2;
+        BYTE	voltage;
+        BYTE	currentH;
+        BYTE	currentL;
+        BYTE	powerH;
+        BYTE	powerL;
+        BYTE	energyH;
+        BYTE	energyL;
+        BYTE	pf;
+        BYTE	freq;
 #ifdef IS_BIG_ENDIAN
-		BYTE	rssi : 4;
-		BYTE	filler : 4;
+        BYTE	rssi : 4;
+        BYTE	filler : 4;
 #else
-		BYTE	filler : 4;
-		BYTE	rssi : 4;
+        BYTE	filler : 4;
+        BYTE	rssi : 4;
 #endif
-	} POWER;
+    } POWER;
 
 	struct {
 		BYTE	packetlength;
@@ -1869,6 +1997,64 @@ typedef union tRBUF {
 		BYTE	rssi : 4;
 #endif
 	} WEIGHT;
+
+	struct {
+		BYTE	packetlength;
+		BYTE	packettype;
+		BYTE	subtype;
+		BYTE	seqnbr;
+		BYTE	id1;
+		BYTE	id2;
+		BYTE	id3;
+		BYTE	id4;
+		BYTE	id5;
+		BYTE	contract_type;
+		BYTE	counter1_0;
+		BYTE	counter1_1;
+		BYTE	counter1_2;
+		BYTE	counter1_3;
+		BYTE	counter2_0;
+		BYTE	counter2_1;
+		BYTE	counter2_2;
+		BYTE	counter2_3;
+		BYTE	power_H;
+		BYTE	power_L;
+		BYTE	state;
+#ifdef IS_BIG_ENDIAN
+		BYTE	rssi : 4;
+		BYTE	battery_level : 4;
+#else
+		BYTE	battery_level : 4;
+		BYTE	rssi : 4;
+#endif
+	} TIC;
+
+	struct {
+		BYTE	packetlength;
+		BYTE	packettype;
+		BYTE	subtype;
+		BYTE	seqnbr;
+		BYTE	id1;
+		BYTE	id2;
+		BYTE	id3;
+		BYTE	id4;
+		BYTE	counter1_0;
+		BYTE	counter1_1;
+		BYTE	counter1_2;
+		BYTE	counter1_3;
+		BYTE	counter2_0;
+		BYTE	counter2_1;
+		BYTE	counter2_2;
+		BYTE	counter2_3;
+		BYTE	state;
+#ifdef IS_BIG_ENDIAN
+		BYTE	rssi : 4;
+		BYTE	battery_level : 4;
+#else
+		BYTE	battery_level : 4;
+		BYTE	rssi : 4;
+#endif
+	} CEENCODER;
 
 	struct {
 		BYTE	packetlength;
@@ -1908,35 +2094,35 @@ typedef union tRBUF {
 	} RFXMETER;
 
 	struct {
-		BYTE	packetlength;
-		BYTE	packettype;
-		BYTE	subtype;
-		BYTE	seqnbr;
-		BYTE	hc1;
-		BYTE	hc2;
-		BYTE	addr;
-		BYTE	cmd1;
-		BYTE	cmd2;
+	BYTE	packetlength;
+	BYTE	packettype;
+	BYTE	subtype;
+	BYTE	seqnbr;
+	BYTE	hc1;
+	BYTE	hc2;
+	BYTE	addr;
+	BYTE	cmd1;
+	BYTE	cmd2;
 #ifdef IS_BIG_ENDIAN
-		BYTE	rssi : 4;
-		BYTE	filler : 4;
+	BYTE	rssi : 4;
+	BYTE	filler : 4;
 #else
-		BYTE	filler : 4;
-		BYTE	rssi : 4;
+	BYTE	filler : 4;
+	BYTE	rssi : 4;
 #endif
-	} FS20;
+    } FS20;
 
 	struct {
-		BYTE	packetlength;
-		BYTE	packettype;
-		BYTE	subtype;
-		BYTE	seqnbr;
-		BYTE	repeat;
-		struct {
-			BYTE	uint_msb;
-			BYTE	uint_lsb;
-		} pulse[125];
-	} RAW;
+	BYTE	packetlength;
+	BYTE	packettype;
+	BYTE	subtype;
+	BYTE	seqnbr;
+	BYTE	repeat;
+	struct{
+		BYTE	uint_msb;
+		BYTE	uint_lsb;
+	} pulse[125];
+    } RAW;
 } RBUF;
 
 #endif //_RXFCOMLIB_F11DD459_E67E_4B26_8E44_B964E99304BF

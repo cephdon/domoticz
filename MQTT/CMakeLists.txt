@@ -17,18 +17,22 @@ endif()
 if(NOT OPENSSL_FOUND)
   message(STATUS "Failed to find the openssl library, no TLS support")
 else()
-  add_definitions(-DNS_ENABLE_SSL)
+  add_definitions(-DWITH_TLS)
+  include_directories(${OPENSSL_INCLUDE_DIR})
 endif()
 
-SET(CORE
+SET(CORE mosquitto.c
 	logging_mosq.c memory_mosq.c messages_mosq.c net_mosq.c read_handle.c read_handle_client.c read_handle_shared.c
 	send_client_mosq.c send_mosq.c socks_mosq.c srv_mosq.c thread_mosq.c time_mosq.c tls_mosq.c util_mosq.c will_mosq.c
 )
 
-SET (LIB mosquitto.c)
+SET (LIB mosquittopp.cpp)
 
 IF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 	SET(OperatingSystem "Linux")
 ENDIF(${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
-ADD_LIBRARY(mqtt ${LIB} ${CORE})
+ADD_LIBRARY(mqtt STATIC ${LIB} ${CORE})
+
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}")
+link_directories("${CMAKE_CURRENT_SOURCE_DIR}")

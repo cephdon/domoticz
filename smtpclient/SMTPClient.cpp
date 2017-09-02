@@ -104,7 +104,7 @@ bool SMTPClient::SendEmail()
 {
 	if (m_From.size()==0)
 		return false;
-	if (m_Recipients.size()==0)
+	if (m_Recipients.empty())
 		return false;
 	if (m_Server.size()==0)
 		return false;
@@ -127,7 +127,11 @@ bool SMTPClient::SendEmail()
 	}
 
 	std::stringstream sstr;
-	sstr << "smtp://" << m_Server << ":" << m_Port;
+	if (m_Port != 465)
+		sstr << "smtp://";
+	else
+		sstr << "smtps://"; //SSL connection
+	sstr << m_Server << ":" << m_Port;
 	std::string szURL=sstr.str();//"smtp://"+MailServer;
 
 	try
@@ -275,7 +279,7 @@ const std::string SMTPClient::MakeMessage()
 		// we have attachments
 		ret += "Content-Type: multipart/mixed;\n"
 			"\tboundary=\"" + std::string(szBoundaryMixed) + "\"\n\n";
-		ret += "This is a multi-part message in MIME format.\n";
+		ret += "This is a multipart message in MIME format.\n";
 		bHaveSendMimeFormat = true;
 	}
 
@@ -284,7 +288,7 @@ const std::string SMTPClient::MakeMessage()
 		ret += "Content-Type: multipart/alternative;\n"
 			"\tboundary=\"" + std::string(szBoundary) + "\"\n\n";
 		if (!bHaveSendMimeFormat)
-			ret += "This is a multi-part message in MIME format.\n";
+			ret += "This is a multipart message in MIME format.\n";
 
 		if (!m_PlainBody.empty()) {
 			ret += "--" + std::string(szBoundary) + "\n";

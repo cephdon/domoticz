@@ -7,12 +7,10 @@
 #include "../main/Logger.h"
 #include "../hardware/DomoticzTCP.h"
 #include "../main/mainworker.h"
-
+#include "../main/localtime_r.h"
 #include <boost/asio.hpp>
 #include <algorithm>
 #include <boost/bind.hpp>
-
-extern MainWorker m_mainworker;
 
 namespace tcp {
 namespace server {
@@ -42,6 +40,7 @@ void CTCPServerInt::stop()
 	// Post a call to the stop function so that server::stop() is safe to call
 	// from any thread.
 	io_service_.post(boost::bind(&CTCPServerInt::handle_stop, this));
+	m_incoming_domoticz_history.clear();
 }
 
 void CTCPServerInt::handle_stop()
@@ -53,25 +52,74 @@ void CTCPServerInt::handle_stop()
 	stopAllClients();
 }
 
+bool CTCPServerInt::IsUserHereFirstTime(const std::string &ip_string)
+{
+	//
+	//	Log same IP-address first time and then once per day
+	//
+	time_t now = mytime(NULL);
+
+	std::vector<_tTCPLogInfo>::iterator itt = m_incoming_domoticz_history.begin();
+	while (itt!= m_incoming_domoticz_history.end())
+	{
+		if (difftime(now,itt->time) > SECONDS_PER_DAY)
+		{
+			itt = m_incoming_domoticz_history.erase(itt);
+		}
+		else
+		{
+			if (ip_string.compare(itt->string) == 0)
+			{
+				//already logged this
+				return false;
+			}
+			++itt;
+		}
+	}
+	if (m_incoming_domoticz_history.size() > 100)
+		return false; //just to be safe
+
+	_tTCPLogInfo li;
+	li.time = now;
+	li.string = ip_string;
+	m_incoming_domoticz_history.push_back(li);
+	return true;
+}
+
 void CTCPServerInt::handleAccept(const boost::system::error_code& error)
 {
-	if(!error) // 1.
-	{
-		boost::lock_guard<boost::mutex> l(connectionMutex);
-		std::string s = new_connection_->socket()->remote_endpoint().address().to_string();
-		new_connection_->m_endpoint=s;
-		_log.Log(LOG_STATUS,"Incoming Domoticz connection from: %s", s.c_str());
+	if (error)
+		return;
+	boost::lock_guard<boost::mutex> l(connectionMutex);
+	std::string s = new_connection_->socket()->remote_endpoint().address().to_string();
 
-		connections_.insert(new_connection_);
-		new_connection_->start();
-
-		new_connection_.reset(new CTCPClient(io_service_, this));
-
-		acceptor_.async_accept(
-			*(new_connection_->socket()),
-			boost::bind(&CTCPServerInt::handleAccept, this,
-			boost::asio::placeholders::error));
+	if (s.substr(0, 7) == "::ffff:") {
+		s = s.substr(7);
 	}
+
+	new_connection_->m_endpoint=s;
+		
+	if (IsUserHereFirstTime(s))
+	{
+		_log.Log(LOG_STATUS, "Incoming Domoticz connection from: %s", s.c_str());
+	}
+	else
+	{
+		if (_log.isTraceEnabled())
+		{
+			_log.Log(LOG_TRACE, "Incoming Domoticz connection from: %s", s.c_str());
+		}
+	}
+
+	connections_.insert(new_connection_);
+	new_connection_->start();
+
+	new_connection_.reset(new CTCPClient(io_service_, this));
+
+	acceptor_.async_accept(
+		*(new_connection_->socket()),
+		boost::bind(&CTCPServerInt::handleAccept, this,
+		boost::asio::placeholders::error));
 }
 
 _tRemoteShareUser* CTCPServerIntBase::FindUser(const std::string &username)
@@ -142,7 +190,7 @@ unsigned int CTCPServerIntBase::GetUserDevicesCount(const std::string &username)
 	return (unsigned int) pUser->Devices.size();
 }
 
-void CTCPServerIntBase::SendToAll(const unsigned long long DeviceRowID, const char *pData, size_t Length, const CTCPClientBase* pClient2Ignore)
+void CTCPServerIntBase::SendToAll(const int HardwareID, const uint64_t DeviceRowID, const char *pData, size_t Length, const CTCPClientBase* pClient2Ignore)
 {
 	boost::lock_guard<boost::mutex> l(connectionMutex);
 
@@ -217,7 +265,7 @@ CTCPServerInt::~CTCPServerInt(void)
 
 #ifndef NOCLOUD
 // our proxied server
-CTCPServerProxied::CTCPServerProxied(CTCPServer *pRoot, http::server::CProxyClient *proxy) : CTCPServerIntBase(pRoot)
+CTCPServerProxied::CTCPServerProxied(CTCPServer *pRoot, boost::shared_ptr<http::server::CProxyClient> proxy) : CTCPServerIntBase(pRoot)
 {
 	m_pProxyClient = proxy;
 }
@@ -365,7 +413,7 @@ bool CTCPServer::StartServer(const std::string &address, const std::string &port
 }
 
 #ifndef NOCLOUD
-bool CTCPServer::StartServer(http::server::CProxyClient *proxy)
+bool CTCPServer::StartServer(boost::shared_ptr<http::server::CProxyClient> proxy)
 {
 	_log.Log(LOG_NORM, "Accepting shared server connections via MyDomotiz (see settings menu).");
 	m_pProxyServer = new CTCPServerProxied(this, proxy);
@@ -411,14 +459,14 @@ void CTCPServer::Do_Work()
 	}
 }
 
-void CTCPServer::SendToAll(const unsigned long long DeviceRowID, const char *pData, size_t Length, const CTCPClientBase* pClient2Ignore)
+void CTCPServer::SendToAll(const int HardwareID, const uint64_t DeviceRowID, const char *pData, size_t Length, const CTCPClientBase* pClient2Ignore)
 {
 	boost::lock_guard<boost::mutex> l(m_server_mutex);
 	if (m_pTCPServer)
-		m_pTCPServer->SendToAll(DeviceRowID, pData, Length, pClient2Ignore);
+		m_pTCPServer->SendToAll(HardwareID, DeviceRowID, pData, Length, pClient2Ignore);
 #ifndef NOCLOUD
 	if (m_pProxyServer)
-		m_pProxyServer->SendToAll(DeviceRowID, pData, Length, pClient2Ignore);
+		m_pProxyServer->SendToAll(HardwareID, DeviceRowID, pData, Length, pClient2Ignore);
 #endif
 }
 

@@ -23,6 +23,13 @@ history_file="history_${OS}_${MACH}.txt"
 # Make sure we are on latest commit
 echo "Updating to server revision..."
 git fetch --all
+
+TOTCOUNT="$(git rev-list HEAD...origin/master --count)"
+if [ "$TOTCOUNT" -lt 1 ]; then
+        echo "No Changes..."
+        exit;
+fi
+
 git reset --hard origin/master
 
 cmake -DCMAKE_BUILD_TYPE=Release .
@@ -39,7 +46,7 @@ then
 fi 
 echo "Success, making beta...";
 
-head -n1 appversion.h > ${version_file}
+cp -f appversion.h ${version_file}
 cp -f History.txt ${history_file}
 
 # Generate the archive
@@ -54,7 +61,7 @@ then
   rm ${archive_file}.sha256sum
 fi
 
-tar -zcf ${archive_file} domoticz History.txt License.txt domoticz.sh server_cert.pem updatebeta updaterelease www/ scripts/ Config/
+tar -zcf ${archive_file} domoticz History.txt License.txt domoticz.sh server_cert.pem updatebeta updaterelease www/ scripts/ Config/ plugins/
 if [ $? -ne 0 ]
 then
         echo "Error creating archive!...";

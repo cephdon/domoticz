@@ -9,7 +9,7 @@
 class SatelIntegra : public CDomoticzHardwareBase
 {
 public:
-	SatelIntegra(const int ID, const std::string &IPAddress, const unsigned short IPPort, const std::string& userCode);
+	SatelIntegra(const int ID, const std::string &IPAddress, const unsigned short IPPort, const std::string& userCode, const int pollInterval);
 	virtual ~SatelIntegra();
 
 	bool WriteToHardware(const char *pdata, const unsigned char length);
@@ -22,6 +22,7 @@ private:
 	int m_socket;
 	const unsigned short m_IPPort;
 	const std::string m_IPAddress;
+	int m_pollInterval;
 	volatile bool m_stoprequested;
 	boost::shared_ptr<boost::thread> m_thread;
 	std::map<unsigned int, const char*> errorCodes;
@@ -36,11 +37,12 @@ private:
 	bool m_outputsLastState[256];
 	bool m_isOutputSwitch[256];
 	bool m_isTemperature[256];
+	bool m_isPartitions[32];
+	bool m_armLastState[32];
 
 	// thread-safe for read and write
 	boost::mutex m_mutex;
 
-	bool m_armLast;
 	bool m_alarmLast;
 
 	bool StartHardware();
@@ -53,7 +55,7 @@ private:
 	// Connects socket
 	bool ConnectToIntegra();
 	// new data is collected in Integra for selected command
-	bool IsNewData();
+	bool ReadNewData();
 	// Gets info from hardware about PCB, ETHM1 etc
 	bool GetInfo();
 	// Reads and reports zones violation
@@ -66,29 +68,34 @@ private:
 	bool ReadArmState(const bool firstTime = false);
 	// Read alarm
 	bool ReadAlarm(const bool firstTime = false);
+	// Read events
+	bool ReadEvents();
 	// Updates temperature name and type in database
-	void UpdateTempName(const unsigned int Idx, const unsigned char* name, const unsigned int partition);
+	void UpdateTempName(const int Idx, const unsigned char* name, const int partition);
 	// Updates zone name and type in database
-	void UpdateZoneName(const unsigned int Idx, const unsigned char* name, const unsigned int partition);
+	void UpdateZoneName(const int Idx, const unsigned char* name, const int partition);
 	// Updates output name and type in database
-	void UpdateOutputName(const unsigned int Idx, const unsigned char* name, const bool switchable);
+	void UpdateOutputName(const int Idx, const unsigned char* name, const _eSwitchType switchType);
 	// Updates output name for virtual in/out (arming ald alarm)
 	void UpdateAlarmAndArmName();
 	// Reports zones states to domoticz
-	void ReportZonesViolation(const unsigned long Idx, const bool violation);
+	void ReportZonesViolation(const int Idx, const bool violation);
 	// Reports output states to domoticz
-	void ReportOutputState(const unsigned long Idx, const bool state);
+	void ReportOutputState(const int Idx, const bool state);
 	// Reports arm state to domoticz
-	void ReportArmState(const bool isArm);
+	void ReportArmState(const int Idx, const bool isArm);
 	// Reports alarms to domoticz
 	void ReportAlarm(const bool isAlarm);
 	// Reports temperatures to domoticz
-	void ReportTemperature(const unsigned long Idx, int temp);
+	void ReportTemperature(const int Idx, const int temp);
 	// arms given partitions
-	bool ArmPartitions(const unsigned char* partitions, const unsigned int mode = 0);
+	bool ArmPartitions(const int  partition, const int mode = 0);
 	// disarms given partitions
-	bool DisarmPartitions(const unsigned char* partitions);
+	bool DisarmPartitions(const int partition);
+
+	// convert string from iso to utf8
+	std::string ISO2UTF8(const std::string &name);
 
 	std::pair<unsigned char*, unsigned int> getFullFrame(const unsigned char* pCmd, const unsigned int cmdLength);
-	int SendCommand(const unsigned char* cmd, const unsigned int cmdLength, unsigned char *answer);
+	int SendCommand(const unsigned char* cmd, const unsigned int cmdLength, unsigned char *answer, const unsigned int expectedLength1, const unsigned int expectedLength2 = -1);
 };

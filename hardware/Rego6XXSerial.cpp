@@ -103,10 +103,10 @@ RegoRegisters g_allRegisters[] = {
 //
 //Class Rego6XXSerial
 //
-CRego6XXSerial::CRego6XXSerial(const int ID, const std::string& devname, const int type)
+CRego6XXSerial::CRego6XXSerial(const int ID, const std::string& devname, const int type) :
+m_szSerialPort(devname)
 {
 	m_HwdID=ID;
-	m_szSerialPort=devname;
     m_regoType = type;
     m_errorcntr = 0;
 
@@ -151,18 +151,7 @@ bool CRego6XXSerial::StopHardware()
 	}
     // Wait a while. The read thread might be reading. Adding this prevents a pointer error in the async serial class.
     sleep_milliseconds(10);
-	if (isOpen())
-	{
-		try {
-			clearReadCallback();
-			close();
-			doClose();
-			setErrorStatus(true);
-		} catch(...)
-		{
-			//Don't throw from a Stop command
-		}
-	}
+    terminate();
 	m_bIsStarted=false;
 	return true;
 }
@@ -203,15 +192,7 @@ void CRego6XXSerial::Do_Work()
 		else if(m_errorcntr > Rego6XX_MAX_ERRORS_UNITL_RESTART)
         {
             // Reopen the port and clear the error counter.
-		    try {
-			    clearReadCallback();
-			    close();
-			    doClose();
-			    setErrorStatus(true);
-		    } catch(...)
-		    {
-			    //Don't throw from a Stop command
-		    }
+			terminate();
 
 		    _log.Log(LOG_ERROR,"Rego6XX: Reopening serial port");
 		    sleep_seconds(2);
@@ -403,7 +384,7 @@ bool CRego6XXSerial::ParseData()
 					m_Rego6XXTemp.temperature =  (float)(data * 0.1);
                     if((m_Rego6XXTemp.temperature >= -48.2) && // -48.3 means no sensor.
                         ((fabs(m_Rego6XXTemp.temperature - g_allRegisters[m_pollcntr].lastTemp) > 0.09) || // Only send changes.
-                         (atime - g_allRegisters[m_pollcntr].lastSent >= 300))) // Send at least every 5 minutes
+			 (difftime(atime,g_allRegisters[m_pollcntr].lastSent) >= 300))) // Send at least every 5 minutes
                     {
                         g_allRegisters[m_pollcntr].lastSent = atime;
                         g_allRegisters[m_pollcntr].lastTemp = m_Rego6XXTemp.temperature;
@@ -416,7 +397,7 @@ bool CRego6XXSerial::ParseData()
 					m_Rego6XXValue.value = data; 
                 	m_Rego6XXValue.subtype=sTypeRego6XXStatus;
                     if((m_Rego6XXValue.value != g_allRegisters[m_pollcntr].lastValue) || // Only send changes.
-                       (atime - g_allRegisters[m_pollcntr].lastSent >= (3600 * 23))) // Send at least every 23 hours
+			(difftime(atime,g_allRegisters[m_pollcntr].lastSent) >= (3600 * 23))) // Send at least every 23 hours
                     {
                         g_allRegisters[m_pollcntr].lastSent = atime;
                         g_allRegisters[m_pollcntr].lastValue = m_Rego6XXValue.value;
@@ -429,7 +410,7 @@ bool CRego6XXSerial::ParseData()
 					m_Rego6XXValue.value = data; 
                 	m_Rego6XXValue.subtype=sTypeRego6XXCounter;
                     if((m_Rego6XXValue.value != g_allRegisters[m_pollcntr].lastValue) || // Only send changes.
-                       (atime - g_allRegisters[m_pollcntr].lastSent >= 3000)) // Send at least every 50 minutes
+			(difftime(atime,g_allRegisters[m_pollcntr].lastSent) >= 3000)) // Send at least every 50 minutes
                     {
                         g_allRegisters[m_pollcntr].lastSent = atime;
                         g_allRegisters[m_pollcntr].lastValue = m_Rego6XXValue.value;
@@ -458,23 +439,23 @@ bool CRego6XXSerial::ParseData()
 //Webserver helpers
 namespace http {
 	namespace server {
-		char * CWebServer::SetRego6XXType(WebEmSession & session, const request& req)
+		void CWebServer::SetRego6XXType(WebEmSession & session, const request& req, std::string & redirect_uri)
 		{
-			m_retstr = "/index.html";
+			redirect_uri = "/index.html";
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return (char*)m_retstr.c_str();
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string idx = request::findValue(&req, "idx");
 			if (idx == "") {
-				return (char*)m_retstr.c_str();
+				return;
 			}
 			std::vector<std::vector<std::string> > result;
 			result = m_sql.safe_query("SELECT Mode1, Mode2, Mode3, Mode4, Mode5, Mode6 FROM Hardware WHERE (ID='%q')", idx.c_str());
 			if (result.size() < 1)
-				return (char*)m_retstr.c_str();
+				return;
 
 			unsigned char currentMode1 = atoi(result[0][0].c_str());
 
@@ -485,8 +466,6 @@ namespace http {
 			{
 				m_sql.UpdateRFXCOMHardwareDetails(atoi(idx.c_str()), newMode1, 0, 0, 0, 0, 0);
 			}
-
-			return (char*)m_retstr.c_str();
 		}
 	}
 }

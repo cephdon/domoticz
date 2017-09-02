@@ -8,7 +8,7 @@
 #include "../main/SQLHelper.h"
 #include "../httpclient/HTTPClient.h"
 #include "../main/mainworker.h"
-#include "../hardware/openzwave/control_panel/tinyxml/tinyxml.h"
+#include "../tinyxpath/tinyxml.h"
 
 #define round(a) ( int ) ( a + .5 )
 
@@ -55,7 +55,6 @@ m_UserName(CURLEncode::URLEncode(Username)),
 m_Password(CURLEncode::URLEncode(Password))
 {
 	m_HwdID=ID;
-	m_ThermostatID = "";
 	Init();
 	GetMeterDetails();
 }
@@ -139,7 +138,7 @@ bool CAnnaThermostat::WriteToHardware(const char *pdata, const unsigned char len
 	if (m_Password.size() == 0)
 		return false;
 
-	tRBUF *pCmd = (tRBUF *)pdata;
+	const tRBUF *pCmd = reinterpret_cast<const tRBUF *>(pdata);
 	if (pCmd->LIGHTING2.packettype != pTypeLighting2)
 		return false; //later add RGB support, if someone can provide access
 

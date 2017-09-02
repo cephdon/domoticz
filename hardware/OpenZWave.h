@@ -22,7 +22,7 @@ namespace Json
 	class Value;
 }
 
-class COpenZWave : public AsyncSerial, public ZWaveBase
+class COpenZWave : public ZWaveBase
 {
 public:
 	typedef struct  
@@ -70,9 +70,6 @@ public:
 		int								tFanMode;
 		std::vector<string>				tModes;
 		std::vector<string>				tFanModes;
-
-		//Alarm Level/Type
-		int								m_LastAlarmTypeReceived;
 	}NodeInfo;
 
 	COpenZWave(const int ID, const std::string& devname);
@@ -96,7 +93,7 @@ public:
 	bool GetNodeUserCodes(const unsigned int homeID, const int nodeID, Json::Value &root);
 	bool RemoveUserCode(const unsigned int homeID, const int nodeID, const int codeIndex);
 
-	std::string GetSupportedThermostatModes(const unsigned long ID);
+	std::vector<std::string> GetSupportedThermostatModes(const unsigned long ID);
 	std::string GetSupportedThermostatFanModes(const unsigned long ID);
 
 	//Controller Commands
@@ -122,7 +119,7 @@ public:
 	int ListAssociatedNodesinGroup(const int nodeID,const int groupID,std::vector< string > &nodesingroup);
 	bool AddNodeToGroup(const int nodeID,const int groupID, const int addID, const int instance);
 	bool RemoveNodeFromGroup(const int nodeID,const int groupID, const int removeID, const int instance);
-	std::string GetConfigFile(std::string &szConfigFile);
+	void GetConfigFile(std::string & filePath, std::string & fileContent);
 	unsigned int GetControllerID();
 	void NightlyNodeHeal();
 
@@ -150,7 +147,7 @@ private:
 	void SetThermostatMode(const int nodeID, const int instanceID, const int commandClass, const int tMode);
 	void SetThermostatFanMode(const int nodeID, const int instanceID, const int commandClass, const int fMode);
 
-	unsigned char GetInstanceFromValueID(const OpenZWave::ValueID &vID);
+	uint8_t GetInstanceFromValueID(const OpenZWave::ValueID &vID);
 
 	void StopHardwareIntern();
 
@@ -174,6 +171,8 @@ private:
 	bool m_bInUserCodeEnrollmentMode;
 	bool m_bNightlyNetworkHeal;
 	bool m_bNeedSave;
+	bool m_bAeotecBlinkingMode;
+	int	m_LastAlarmTypeReceived;
 };
 
 #endif //WITH_OPENZWAVE

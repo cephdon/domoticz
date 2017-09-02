@@ -14,6 +14,7 @@
 #include "reply.hpp"
 #include "request.hpp"
 #include "mime_types.hpp"
+#include "utf.hpp"
 #include "Base64.h"
 #include "GZipHelper.h"
 #include <stdarg.h>
@@ -23,12 +24,8 @@
 #include "../main/localtime_r.h"
 #include "../main/Logger.h"
 
-#ifndef WIN32
-	#include <unistd.h> //gethostbyname
-#endif
-
-//10 minutes
-#define SESSION_TIMEOUT 600
+#define SHORT_SESSION_TIMEOUT 600 // 10 minutes
+#define LONG_SESSION_TIMEOUT (30 * 86400) // 30 days
 
 int m_failcounter=0;
 
@@ -36,29 +33,31 @@ namespace http {
 	namespace server {
 
 /**
-
 Webem constructor
 
-@param[in] address  IP address.  In general, use  "0.0.0.0"
-@param[in] port     port to listen on for browser requests e.g. "8080"
+@param[in] server_settings  Server settings (IP address, listening port, ssl options...)
 @param[in] doc_root path to folder containing html e.g. "./"
-
 */
 cWebem::cWebem(
-	   const std::string& address,
-	   const std::string& port,
-	   const std::string& doc_root,
-	   const std::string& secure_cert_file,
-	   const std::string& secure_cert_passphrase) :
-myRequestHandler( doc_root,this ), myPort( port ),
-myServer( address, port, myRequestHandler, secure_cert_file, secure_cert_passphrase ),
-m_DigistRealm("Domoticz.com"),
-m_zippassword(""),
-m_actTheme("")
-{
-	m_authmethod=AUTH_LOGIN;
+		const server_settings & settings,
+		const std::string& doc_root) :
+				m_io_service(),
+				m_settings(settings),
+				myRequestHandler(doc_root, this),
+				m_DigistRealm("Domoticz.com"),
+				m_session_clean_timer(m_io_service, boost::posix_time::minutes(1)),
+				m_io_service_thread(boost::bind(&boost::asio::io_service::run, &m_io_service)),
+				myServer(server_factory::create(settings, myRequestHandler)) {
+	m_authmethod = AUTH_LOGIN;
 	mySessionStore = NULL;
-	myNextSessionCleanup = mytime(NULL) + 15 * 60; // in 15 minutes
+	// associate handler to timer and schedule the first iteration
+	m_session_clean_timer.async_wait(boost::bind(&cWebem::CleanSessions, this));
+}
+
+cWebem::~cWebem() {
+	// Remove reference to CWebServer before its deletion (fix a "pure virtual method called" exception on server termination)
+	mySessionStore = NULL;
+	// Delete server (no need with smart pointer)
 }
 
 /**
@@ -67,14 +66,38 @@ Start the server.
 
 This does not return.
 
-If application needs to continue, start new thread with call to this method.
+IMPORTANT: This method does not return. If application needs to continue, start new thread with call to this method.
 
 */
+void cWebem::Run() {
+	// Start Web server
+	if (myServer != NULL) {
+		myServer->run();
+	}
+}
 
-void cWebem::Run() { myServer.run(); }
+/**
 
-void cWebem::Stop() { myServer.stop(); }
+Stop and delete the internal server.
 
+IMPORTANT:  To start the server again, delete it and create a new cWebem instance.
+
+*/
+void cWebem::Stop() {
+	// Stop session cleaner
+	try {
+		if (!m_io_service.stopped()) {
+			m_io_service.stop();
+			m_io_service_thread.join();
+		}
+	} catch (...) {
+		_log.Log(LOG_ERROR, "[web:%s] exception thrown while stopping session cleaner", GetPort().c_str());
+	}
+	// Stop Web server
+	if (myServer != NULL) {
+		myServer->stop();
+	}
+}
 
 void cWebem::SetAuthenticationMethod(const _eAuthenticationMethod amethod)
 {
@@ -119,9 +142,9 @@ void cWebem::RegisterPageCode( const char* pageurl, webem_page_function fun )
 {
 	myPages.insert( std::pair<std::string, webem_page_function >( std::string(pageurl), fun  ) );
 }
-void cWebem::RegisterPageCodeW( const char* pageurl, webem_page_function_w fun )
+void cWebem::RegisterPageCodeW( const char* pageurl, webem_page_function fun )
 {
-	myPages_w.insert( std::pair<std::string, webem_page_function_w >( std::string(pageurl), fun  ) );
+	myPages_w.insert( std::pair<std::string, webem_page_function >( std::string(pageurl), fun  ) );
 }
 
 
@@ -144,72 +167,6 @@ void cWebem::RegisterWhitelistURLString(const char* idname)
 	myWhitelistURLs.push_back(idname);
 }
 
-		/**
-
-		Conversion between UTF-8 and UTF-16 strings.
-
-		UTF-8 is used by web pages.  It is a variable byte length encoding
-		of UNICODE characters which is independant of the byte order in a computer word.
-
-		UTF-16 is the native Windows UNICODE encoding.
-
-		The class stores two copies of the string, one in each encoding,
-		so should only exist briefly while conversion is done.
-
-		This is a wrapper for the WideCharToMultiByte and MultiByteToWideChar
-		*/
-		class cUTF
-		{
-			char * myString8;			///< string in UTF-6
-		public:
-			/// Construct from UTF-16
-			cUTF( const wchar_t * ws );
-			///  Construct from UTF8
-			cUTF( const char * s );
-			// copy constructor
-			cUTF();
-			/// get UTF8 version
-			const char * get8() { return myString8; }
-			/// free buffers
-			~cUTF() { if (myString8) free(myString8); }
-		};
-
-		cUTF::cUTF()
-		{
-			myString8 = NULL;
-		}
-
-		/// Construct from UTF-16
-		cUTF::cUTF( const wchar_t * ws )
-		{
-			std::string dest;
-			std::wstring src=ws;
-			for (size_t i = 0; i < src.size(); i++)
-			{
-				wchar_t w = src[i];
-				if (w <= 0x7f)
-					dest.push_back((char)w);
-				else if (w <= 0x7ff){
-					dest.push_back(0xc0 | ((w >> 6)& 0x1f));
-					dest.push_back(0x80| (w & 0x3f));
-				}
-				else if (w <= 0xffff){
-					dest.push_back(0xe0 | ((w >> 12)& 0x0f));
-					dest.push_back(0x80| ((w >> 6) & 0x3f));
-					dest.push_back(0x80| (w & 0x3f));
-				}
-				else
-					dest.push_back('?');
-			}
-			int len=dest.size();
-			myString8 = (char * ) malloc( len + 1 );
-			if (myString8)
-			{
-				memcpy(myString8, dest.c_str(), len);
-				*(myString8 + len) = '\0';
-			}
-		}
-
 /**
 
   Do not call from application code, used by server to include generated text.
@@ -229,19 +186,19 @@ void cWebem::RegisterWhitelistURLString(const char* idname)
 bool cWebem::Include( std::string& reply )
 {
 	bool res = false;
-	int p = 0;
+	size_t p = 0;
 	while( 1 ) {
 		// find next request for generated text
 		p = reply.find("<!--#embed",p);
-		if( p == -1 ) {
+		if( p == std::string::npos ) {
 			break;
 		}
-		int q = reply.find("-->",p);
-		if( q == -1 )
+		size_t q = reply.find("-->",p);
+		if( q == std::string::npos )
 			break;
 		q += 3;
 
-		int reply_len = reply.length();
+		size_t reply_len = reply.length();
 
 		// code identifying text generator
 		std::string code = reply.substr( p+11, q-p-15 );
@@ -250,16 +207,16 @@ bool cWebem::Include( std::string& reply )
 		std::map < std::string, webem_include_function >::iterator pf = myIncludes.find( code );
 		if( pf != myIncludes.end() ) {
 			// insert generated text
-			std::string ret;
+			std::string content_part;
 			try
 			{
-				ret = pf->second();
+				pf->second(content_part);
 			}
 			catch (...)
 			{
 				
 			}
-			reply.insert( p, ret );
+			reply.insert( p, content_part );
 			res = true;
 		} else {
 			// no function found, look for a wide character fuction
@@ -267,16 +224,16 @@ bool cWebem::Include( std::string& reply )
 			if( pf != myIncludes_w.end() ) {
 				// function found
 				// get return string and convert from UTF-16 to UTF-8
-				std::wstring wret;
+				std::wstring content_part_w;
 				try
 				{
-					wret = pf->second();
+					pf->second(content_part_w);
 				}
 				catch (...)
 				{
 					
 				}
-				cUTF utf( wret.c_str() );
+				cUTF utf( content_part_w.c_str() );
 				// insert generated text
 				reply.insert( p, utf.get8() );
 				res = true;
@@ -306,13 +263,13 @@ bool cWebem::IsAction(const request& req)
 {
 	// look for cWebem form action request
 	std::string uri = req.uri;
-	int q = uri.find(".webem");
-	if (q == -1)
+	size_t q = uri.find(".webem");
+	if (q == std::string::npos)
 		return false;
 	return true;
 }
-/**
 
+/**
 Do not call from application code,
 used by server to handle form submissions.
 
@@ -330,7 +287,7 @@ bool cWebem::CheckForAction(WebEmSession & session, request& req )
 	std::string uri = ExtractRequestPath(req.uri);
 	
 	// find function matching action code
-	int q = uri.find(".webem");
+	size_t q = uri.find(".webem");
 	std::string code = uri.substr(1,q-1);
 	std::map < std::string, webem_action_function >::iterator
 		pfun = myActions.find(  code );
@@ -384,7 +341,8 @@ bool cWebem::CheckForAction(WebEmSession & session, request& req )
 					if (
 						(szContentType.find("application/octet-stream") != std::string::npos) ||
 						(szContentType.find("application/json") != std::string::npos) ||
-						(szContentType.find("Content-Type: text/xml") != std::string::npos)
+						(szContentType.find("Content-Type: text/xml") != std::string::npos) ||
+						(szContentType.find("Content-Type: text/x-hex") != std::string::npos)
 						)
 					{
 						//Its a file/stream, next line should be empty
@@ -415,16 +373,14 @@ bool cWebem::CheckForAction(WebEmSession & session, request& req )
 				if (req.parameters.empty())
 					return true;
 				// call the function
-				std::string ret;
 				try
 				{
-					ret = pfun->second(session, req);
+					pfun->second(session, req, req.uri);
 				}
 				catch (...)
 				{
 					
 				}
-				req.uri = ret;
 				return true;
 			}
 		}
@@ -437,16 +393,16 @@ bool cWebem::CheckForAction(WebEmSession & session, request& req )
 	std::string name;
 	std::string value;
 
-	int p = q;
+	size_t p = q;
 	int flag_done = 0;
 	while( ! flag_done ) {
 		q = uri.find("=",p);
-		if (q==-1)
+		if (q == std::string::npos)
 			return true;
 		name = uri.substr(p,q-p);
 		p = q + 1;
 		q = uri.find("&",p);
-		if( q != -1 )
+		if( q != std::string::npos )
 			value = uri.substr(p,q-p);
 		else {
 			value = uri.substr(p);
@@ -454,8 +410,8 @@ bool cWebem::CheckForAction(WebEmSession & session, request& req )
 		}
 		// the browser sends blanks as +
 		while( 1 ) {
-			int p = value.find("+");
-			if( p == -1 )
+			size_t p = value.find("+");
+			if( p == std::string::npos )
 				break;
 			value.replace( p, 1, " " );
 		}
@@ -465,16 +421,14 @@ bool cWebem::CheckForAction(WebEmSession & session, request& req )
 	}
 
 	// call the function
-	std::string ret;
 	try
 	{
-		ret = pfun->second(session, req);
+		pfun->second(session, req, req.uri);
 	}
 	catch (...)
 	{
 		
 	}
-	req.uri = ret;
 
 	return true;
 }
@@ -496,7 +450,7 @@ bool cWebem::IsPageOverride(const request& req, reply& rep)
 	if (pfun != myPages.end())
 		return true;
 	//check wchar_t
-	std::map < std::string, webem_page_function_w >::iterator
+	std::map < std::string, webem_page_function >::iterator
 		pfunW = myPages_w.find(request_path);
 	if (pfunW != myPages_w.end())
 		return true;
@@ -513,34 +467,32 @@ bool cWebem::CheckForPageOverride(WebEmSession & session, request& req, reply& r
 		return false;
 	}
 
-	session.lastRequestPath = request_path;
-
 	request_path = ExtractRequestPath(request_path);
 	
 	req.parameters.clear();
 
 	std::string request_path2 = req.uri; // we need the raw request string to parse the get-request
-	int paramPos=request_path2.find_first_of('?');
+	size_t paramPos=request_path2.find_first_of('?');
 	if (paramPos!=std::string::npos)
 	{
 		std::string params=request_path2.substr(paramPos+1);
 		std::string name;
 		std::string value;
 
-		int q=0;
-		int p = q;
+		size_t q=0;
+		size_t p = q;
 		int flag_done = 0;
 		std::string uri=params;
 		while( ! flag_done ) {
 			q = uri.find("=",p);
-			if (q==-1)
+			if (q == std::string::npos)
 			{
 				break;
 			}
 			name = uri.substr(p,q-p);
 			p = q + 1;
 			q = uri.find("&",p);
-			if( q != -1 )
+			if( q != std::string::npos)
 				value = uri.substr(p,q-p);
 			else {
 				value = uri.substr(p);
@@ -548,8 +500,8 @@ bool cWebem::CheckForPageOverride(WebEmSession & session, request& req, reply& r
 			}
 			// the browser sends blanks as +
 			while( 1 ) {
-				int p = value.find("+");
-				if( p == -1 )
+				size_t p = value.find("+");
+				if( p == std::string::npos)
 					break;
 				value.replace( p, 1, " " );
 			}
@@ -631,10 +583,9 @@ bool cWebem::CheckForPageOverride(WebEmSession & session, request& req, reply& r
 
 	// Determine the file extension.
 	std::string extension;
-	if (req.uri.find("json.htm") != std::string::npos)
+	if (req.uri.find("json.htm") != std::string::npos) {
 		extension = "json";
-	else
-	{
+	} else {
 		std::size_t last_slash_pos = request_path.find_last_of("/");
 		std::size_t last_dot_pos = request_path.find_last_of(".");
 		if (last_dot_pos != std::string::npos && last_dot_pos > last_slash_pos)
@@ -642,99 +593,78 @@ bool cWebem::CheckForPageOverride(WebEmSession & session, request& req, reply& r
 			extension = request_path.substr(last_dot_pos + 1);
 		}
 	}
+	std::string strMimeType = mime_types::extension_to_type(extension);
 
 	std::map < std::string, webem_page_function >::iterator
 		pfun = myPages.find(  request_path );
 
 	if (pfun!=myPages.end())
 	{
-		session.outputfilename="";
 		rep.status = reply::ok;
-		std::string retstr;
 		try
 		{
-			retstr = pfun->second(session, req);
+			pfun->second(session, req, rep);
 		}
-		catch (...)
-		{
-			
+		catch (std::exception& e) {
+			_log.Log(LOG_ERROR, "WebServer PO exception occurred : '%s'", e.what());
 		}
-
-		rep.content.append(retstr.c_str(), retstr.size());
-
-		std::string strMimeType=mime_types::extension_to_type(extension);
-		if (session.outputfilename!="")
-		{
-			std::size_t last_dot_pos = session.outputfilename.find_last_of(".");
-			if (last_dot_pos != std::string::npos)
-			{
-				extension = session.outputfilename.substr(last_dot_pos + 1);
-				strMimeType=mime_types::extension_to_type(extension);
+		catch (...) {
+			_log.Log(LOG_ERROR, "WebServer PO unknown exception occurred");
+		}
+		std::string attachment;
+		size_t num = rep.headers.size();
+		for (size_t h = 0; h < num; h++) {
+			if (boost::iequals(rep.headers[h].name, "Content-Disposition")) {
+				attachment = rep.headers[h].value.substr(rep.headers[h].value.find("=") + 1);
+				std::size_t last_dot_pos = attachment.find_last_of(".");
+				if (last_dot_pos != std::string::npos)
+				{
+					extension = attachment.substr(last_dot_pos + 1);
+					strMimeType=mime_types::extension_to_type(extension);
+				}
+				break;
 			}
 		}
 
 		if (!boost::algorithm::starts_with(strMimeType, "image"))
 		{
-			reply::AddHeader(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
-			reply::AddHeader(&rep, "Content-Type", strMimeType + ";charset=UTF-8");
-			reply::AddHeader(&rep, "Cache-Control", "no-cache");
-			reply::AddHeader(&rep, "Pragma", "no-cache");
-			reply::AddHeader(&rep, "Access-Control-Allow-Origin", "*");
-			if (req.keep_alive) {
-				reply::AddHeader(&rep, "Connection", "Keep-Alive");
-				reply::AddHeader(&rep, "Keep-Alive", "max=20, timeout=10");
-			}
-			if (session.outputfilename != "")
-			{
-				reply::AddHeader(&rep, "Content-Disposition", "attachment; filename=" + session.outputfilename);
-			}
+			reply::add_header(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+			reply::add_header(&rep, "Content-Type", strMimeType + ";charset=UTF-8");
+			reply::add_header(&rep, "Cache-Control", "no-cache");
+			reply::add_header(&rep, "Pragma", "no-cache");
+			reply::add_header(&rep, "Access-Control-Allow-Origin", "*");
 		}
 		else
 		{
-			reply::AddHeader(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
-			reply::AddHeader(&rep, "Content-Type", strMimeType);
-			reply::AddHeader(&rep, "Cache-Control", "max-age=3600, public");
-			if (req.keep_alive) {
-				reply::AddHeader(&rep, "Connection", "Keep-Alive");
-				reply::AddHeader(&rep, "Keep-Alive", "max=20, timeout=10");
-			}
-			if (session.outputfilename != "")
-			{
-				reply::AddHeader(&rep, "Content-Disposition", "attachment; filename=" + session.outputfilename);
-			}
+			reply::add_header(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+			reply::add_header(&rep, "Content-Type", strMimeType);
+			reply::add_header(&rep, "Cache-Control", "max-age=3600, public");
 		}
 		return true;
 	}
+
 	//check wchar_t
-	std::map < std::string, webem_page_function_w >::iterator
+	std::map < std::string, webem_page_function >::iterator
 		pfunW = myPages_w.find(  request_path );
 	if (pfunW==myPages_w.end())
 		return false;
 
-	std::wstring wret;
 	try
 	{
-		wret = pfunW->second(session, req);
+		pfunW->second(session, req, rep);
 	}
 	catch (...)
 	{
 		
 	}
-	cUTF utf( wret.c_str() );
 
 	rep.status = reply::ok;
-	rep.content.append(utf.get8(), strlen(utf.get8()));
+	reply::add_header(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+	reply::add_header(&rep, "Content-Type", strMimeType + "; charset=UTF-8");
+	reply::add_header(&rep, "Cache-Control", "no-cache");
+	reply::add_header(&rep, "Pragma", "no-cache");
+	reply::add_header(&rep, "Access-Control-Allow-Origin", "*");
 
-	reply::AddHeader(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
-	reply::AddHeader(&rep, "Content-Type", mime_types::extension_to_type(extension) + "; charset=UTF-8");
-	reply::AddHeader(&rep, "Cache-Control", "no-cache");
-	reply::AddHeader(&rep, "Pragma", "no-cache");
-	reply::AddHeader(&rep, "Access-Control-Allow-Origin", "*");
-
-	if (req.keep_alive) {
-		reply::AddHeader(&rep, "Connection", "Keep-Alive");
-		reply::AddHeader(&rep, "Keep-Alive", "max=20, timeout=10");
-	}
 	return true;
 }
 
@@ -764,7 +694,7 @@ void cWebem::SetWebRoot(const std::string &webRoot)
 std::string cWebem::ExtractRequestPath(const std::string& original_request_path)
 {
 	std::string request_path(original_request_path);
-	int paramPos = request_path.find_first_of('?');
+	size_t paramPos = request_path.find_first_of('?');
 	if (paramPos != std::string::npos)
 	{
 		request_path = request_path.substr(0, paramPos);
@@ -843,6 +773,8 @@ void cWebem::AddUserPassword(const unsigned long ID, const std::string &username
 void cWebem::ClearUserPasswords()
 {
 	m_userpasswords.clear();
+
+	boost::mutex::scoped_lock lock(m_sessionsMutex);
 	m_sessions.clear(); //TODO : check if it is really necessary
 }
 
@@ -866,7 +798,7 @@ void cWebem::AddLocalNetworks(std::string network)
 	std::string mask=network;
 
 
-	int pos=network.find_first_of("*");
+	size_t pos=network.find_first_of("*");
 	if (pos>0)
 	{
 		stdreplace(inetwork,"*","0");
@@ -944,14 +876,11 @@ void cWebem::SetZipPassword(std::string password)
 	m_zippassword = password;
 }
 
-void cWebem::SetSessionStore(session_store* sessionStore) {
+void cWebem::SetSessionStore(session_store_impl_ptr sessionStore) {
 	mySessionStore = sessionStore;
-	if (mySessionStore != NULL) {
-		mySessionStore->CleanSessions();
-	}
 }
 
-session_store* cWebem::GetSessionStore() {
+session_store_impl_ptr cWebem::GetSessionStore() {
 	return mySessionStore;
 }
 
@@ -968,26 +897,83 @@ static int check_password(struct ah *ah, const std::string &ha1, const std::stri
 	return 0;
 }
 
-void cWebem::CleanTimedOutSessions() {
+const std::string cWebem::GetPort() {
+	return m_settings.listening_port;
+}
 
-	// TODO : Check if a mutex and an atomic<unsigned long> are needed in case multiple requests are received at the same time.
+WebEmSession * cWebem::GetSession(const std::string & ssid) {
+	boost::mutex::scoped_lock lock(m_sessionsMutex);
+	std::map<std::string, WebEmSession>::iterator itt = m_sessions.find(ssid);
+	if (itt != m_sessions.end()) {
+		return &itt->second;
+	}
+	return NULL;
+}
+void cWebem::AddSession(const WebEmSession & session) {
+	boost::mutex::scoped_lock lock(m_sessionsMutex);
+	m_sessions[session.id] = session;
+}
 
-	time_t now = mytime(NULL);
-	if (myNextSessionCleanup < now) {
-		myNextSessionCleanup = now + 15 * 60; // in 15 minutes
-		std::vector<std::string> ssids;
+void cWebem::RemoveSession(const WebEmSession & session) {
+	RemoveSession(session.id);
+}
+
+void cWebem::RemoveSession(const std::string & ssid) {
+	boost::mutex::scoped_lock lock(m_sessionsMutex);
+	std::map<std::string, WebEmSession>::iterator itt = m_sessions.find(ssid);
+	if (itt != m_sessions.end()) {
+		m_sessions.erase(itt);
+	}
+}
+
+int cWebem::CountSessions() {
+	boost::mutex::scoped_lock lock(m_sessionsMutex);
+	return (int) m_sessions.size();
+}
+
+void cWebem::CleanSessions() {
+#ifdef DEBUG_WWW
+	_log.Log(LOG_STATUS, "[web:%s] cleaning sessions...", GetPort().c_str());
+#endif
+	int before = CountSessions();
+	// Clean up timed out sessions from memory
+	std::vector<std::string> ssids;
+	{
+		boost::mutex::scoped_lock lock(m_sessionsMutex);
+		time_t now = mytime(NULL);
 		std::map<std::string, WebEmSession>::iterator itt;
-		for (itt=m_sessions.begin(); itt!=m_sessions.end(); ++itt) {
+		for (itt = m_sessions.begin(); itt != m_sessions.end(); ++itt) {
 			if (itt->second.timeout < now) {
 				ssids.push_back(itt->second.id);
 			}
 		}
-		std::vector<std::string>::iterator ssitt;
-		for (ssitt=ssids.begin(); ssitt!=ssids.end(); ++ssitt) {
-			std::string ssid = *ssitt;
-			m_sessions.erase(ssid);
+	}
+	std::vector<std::string>::iterator ssitt;
+	for (ssitt = ssids.begin(); ssitt != ssids.end(); ++ssitt) {
+		std::string ssid = *ssitt;
+		RemoveSession(ssid);
+	}
+	int after = CountSessions();
+	std::stringstream ss;
+	{
+		boost::mutex::scoped_lock lock(m_sessionsMutex);
+		std::map<std::string, WebEmSession>::iterator itt;
+		int i = 0;
+		for (itt = m_sessions.begin(); itt != m_sessions.end(); ++itt) {
+			if (i > 0) {
+				ss << ",";
+			}
+			ss << itt->second.id;
+			i += 1;
 		}
 	}
+	// Clean up expired sessions from database in order to avoid to wait for the domoticz restart (long time running instance)
+	if (mySessionStore != NULL) {
+		this->mySessionStore->CleanSessions();
+	}
+	// Schedule next cleanup
+	m_session_clean_timer.expires_at(m_session_clean_timer.expires_at() + boost::posix_time::minutes(15));
+	m_session_clean_timer.async_wait(boost::bind(&cWebem::CleanSessions, this));
 }
 
 // Return 1 on success. Always initializes the ah structure.
@@ -995,23 +981,55 @@ int cWebemRequestHandler::parse_auth_header(const request& req, struct ah *ah)
 {
 	const char *auth_header;
 
-	if ((auth_header = request::get_req_header(&req, "Authorization")) == NULL)
-	{
+	if ((auth_header = request::get_req_header(&req, "Authorization")) == NULL) {
 		return 0;
 	}
 
-	//Only accept Basic Auth header
-	if (!boost::icontains(auth_header, "Basic "))
-		return 0;
+	// X509 Auth header
+	if (boost::icontains(auth_header, "/CN="))
+	{
+		// DN looks like: /C=Country/ST=State/L=City/O=Org/OU=OrganizationUnit/CN=username/emailAddress=user@mail.com
+		std::string dn = auth_header;
+		size_t spos, epos;
 
-	std::string decoded = base64_decode(auth_header + 6);
-	int npos = decoded.find(':');
-	if (npos == std::string::npos)
-		return 0;
+		spos = dn.find("/CN=");
+		epos = dn.find("/", spos + 1);
+		if (spos != std::string::npos) {
+				if (epos == std::string::npos) {
+						epos = dn.size();
+				}
+				ah->user = dn.substr(spos + 4, epos - spos - 4);
+		}
 
-	ah->user = decoded.substr(0, npos);
-	ah->response = decoded.substr(npos + 1);
-	return 1;
+		spos = dn.find("/emailAddress=");
+		epos = dn.find("/", spos + 1);
+		if (spos != std::string::npos) {
+				if (epos == std::string::npos) {
+						epos = dn.size();
+				}
+				ah->response = dn.substr(spos + 14, epos - spos - 14);
+		}
+
+		if (ah->user.empty()) { // TODO: Should ah->response be not empty ?
+			return 0;
+		}
+		return 1;
+	}
+	// Basic Auth header
+	else if (boost::icontains(auth_header, "Basic "))
+	{
+		std::string decoded = base64_decode(auth_header + 6);
+		size_t npos = decoded.find(':');
+		if (npos == std::string::npos) {
+			return 0;
+		}
+
+		ah->user = decoded.substr(0, npos);
+		ah->response = decoded.substr(npos + 1);
+		return 1;
+	}
+
+	return 0;
 }
 
 // Authorize against the opened passwords file. Return 1 if authorized.
@@ -1024,8 +1042,8 @@ int cWebemRequestHandler::authorize(WebEmSession & session, const request& req, 
 
 	if (!parse_auth_header(req, &_ah))
 	{
-		int uPos=req.uri.find("username=");
-		int pPos=req.uri.find("password=");
+		size_t uPos=req.uri.find("username=");
+		size_t pPos=req.uri.find("password=");
 		if (
 			(uPos==std::string::npos)||
 			(pPos==std::string::npos)
@@ -1135,7 +1153,7 @@ bool cWebemRequestHandler::AreWeInLocalNetwork(const std::string &sHost, const r
 				host_header=request::get_req_header(&req, "X-Real-IP"); //try our NGINX header
 				if (!host_header)
 				{
-					_log.Log(LOG_ERROR,"Webserver: Multiple proxies are used (Or possible spoofing attempt), ignoring client request (remote addresses: %s)",host.c_str());
+					_log.Log(LOG_ERROR,"Webserver: Multiple proxies are used (Or possible spoofing attempt), ignoring client request (remote address: %s)",host.c_str());
 					return false;
 				}
 				host=host_header;
@@ -1186,8 +1204,8 @@ void cWebemRequestHandler::send_remove_cookie(reply& rep)
 {
 	std::stringstream sstr;
 	sstr << "SID=none";
-	sstr << "; path=/; Expires=" << make_web_time(0);
-	reply::AddHeader(&rep, "Set-Cookie", sstr.str(), false);
+	sstr << "; HttpOnly; path=/; Expires=" << make_web_time(0);
+	reply::add_header(&rep, "Set-Cookie", sstr.str(), false);
 }
 
 std::string cWebemRequestHandler::generateSessionID()
@@ -1203,8 +1221,8 @@ std::string cWebemRequestHandler::generateSessionID()
 
 	std::string sessionId = GenerateMD5Hash(base64_encode((const unsigned char*)randomValue.c_str(), randomValue.size()));
 
-#ifdef _DEBUG
-	_log.Log(LOG_STATUS, "generate new session id token %s", sessionId.c_str());
+#ifdef DEBUG_WWW
+	_log.Log(LOG_STATUS, "[web:%s] generate new session id token %s", myWebem->GetPort().c_str(), sessionId.c_str());
 #endif
 
 	return sessionId;
@@ -1223,11 +1241,11 @@ std::string cWebemRequestHandler::generateAuthToken(const WebEmSession & session
 
 	std::string authToken = base64_encode((const unsigned char*)randomValue.c_str(), randomValue.size());
 
-#ifdef _DEBUG
-	_log.Log(LOG_STATUS, "generate new authentication token %s", authToken.c_str());
+#ifdef DEBUG_WWW
+	_log.Log(LOG_STATUS, "[web:%s] generate new authentication token %s", myWebem->GetPort().c_str(), authToken.c_str());
 #endif
 
-	session_store* sstore = myWebem->GetSessionStore();
+	session_store_impl_ptr sstore = myWebem->GetSessionStore();
 	if (sstore != NULL) {
 		WebEmStoredSession storedSession;
 		storedSession.id = session.id;
@@ -1245,20 +1263,23 @@ void cWebemRequestHandler::send_cookie(reply& rep, const WebEmSession & session)
 {
 	std::stringstream sstr;
 	sstr << "SID=" << session.id << "_" << session.auth_token << "." << session.expires;
-	sstr << "; path=/; Expires=" << make_web_time(session.expires);
-	reply::AddHeader(&rep, "Set-Cookie", sstr.str(), false);
+	sstr << "; HttpOnly; path=/; Expires=" << make_web_time(session.expires);
+	reply::add_header(&rep, "Set-Cookie", sstr.str(), false);
 }
 
 void cWebemRequestHandler::send_authorization_request(reply& rep)
 {
+	rep = reply::stock_reply(reply::unauthorized);
 	rep.status = reply::unauthorized;
-	reply::AddHeader(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
-	char szAuthHeader[200];
-	sprintf(szAuthHeader,
-		"Basic "
-		"realm=\"%s\"",
-		myWebem->m_DigistRealm.c_str());
-	reply::AddHeader(&rep, "WWW-Authenticate", szAuthHeader);
+	send_remove_cookie(rep);
+	if (myWebem->m_authmethod == AUTH_BASIC) {
+		char szAuthHeader[200];
+		sprintf(szAuthHeader,
+			"Basic "
+			"realm=\"%s\"",
+			myWebem->m_DigistRealm.c_str());
+		reply::add_header(&rep, "WWW-Authenticate", szAuthHeader);
+	}
 }
 
 bool cWebemRequestHandler::CompressWebOutput(const request& req, reply& rep)
@@ -1290,9 +1311,9 @@ bool cWebemRequestHandler::CompressWebOutput(const request& req, reply& rep)
 				rep.content.clear();
 				rep.content.append((char*)gzip.pgzip, gzip.Length);
 				//Set new content length
-				reply::AddHeader(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+				reply::add_header(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
 				//Add gzip header
-				reply::AddHeader(&rep, "Content-Encoding", "gzip");
+				reply::add_header(&rep, "Content-Encoding", "gzip");
 				return true;
 			}
 		}
@@ -1300,18 +1321,35 @@ bool cWebemRequestHandler::CompressWebOutput(const request& req, reply& rep)
 	return false;
 }
 
+static void GetURICommandParameter(const std::string &uri, std::string &cmdparam)
+{
+	cmdparam = uri;
+	size_t ppos1 = uri.find("&param=");
+	size_t ppos2 = uri.find("?param=");
+	if (
+		(ppos1 == std::string::npos) &&
+		(ppos2 == std::string::npos)
+		)
+		return;
+	size_t ppos = ppos1;
+	if (ppos == std::string::npos)
+		ppos = ppos2;
+	else
+	{
+		if ((ppos2 < ppos) && (ppos != std::string::npos))
+			ppos = ppos2;
+	}
+	cmdparam = uri.substr(ppos + 7);
+	ppos = cmdparam.find("&");
+	if (ppos != std::string::npos)
+	{
+		cmdparam = cmdparam.substr(0, ppos);
+	}
+}
+
 bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const request& req, reply& rep)
 {
 	session.rights = -1; // no rights
-	if (session.forcelogin)
-	{
-		session.forcelogin = false;
-		if (myWebem->m_authmethod == AUTH_BASIC)
-		{
-			send_authorization_request(rep);
-			return false;
-		}
-	}
 
 	if (myWebem->m_userpasswords.size() == 0)
 	{
@@ -1336,7 +1374,7 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
 
 		// Parse session id and its expiration date
 		std::string scookie = cookie_header;
-		int fpos = scookie.find("SID=");
+		size_t fpos = scookie.find("SID=");
 		if (fpos != std::string::npos)
 		{
 			scookie = scookie.substr(fpos);
@@ -1347,8 +1385,8 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
 				scookie = scookie.substr(0, epos);
 			}
 		}
-		int upos = scookie.find("_", fpos);
-		int ppos = scookie.find(".", upos);
+		size_t upos = scookie.find("_", fpos);
+		size_t ppos = scookie.find(".", upos);
 		time_t now = mytime(NULL);
 		if ((fpos != std::string::npos) && (upos != std::string::npos) && (ppos != std::string::npos))
 		{
@@ -1365,8 +1403,8 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
 		}
 
 		if (!(sSID.empty() || sAuthToken.empty() || szTime.empty())) {
-			std::map<std::string, WebEmSession>::iterator itt = myWebem->m_sessions.find(sSID);
-			if (itt != myWebem->m_sessions.end() && (itt->second.expires < now)) {
+			WebEmSession* oldSession = myWebem->GetSession(sSID);
+			if ((oldSession != NULL) && (oldSession->expires < now)) {
 				// Check if session stored in memory is not expired (prevent from spoofing expiration time)
 				expired = true;
 			}
@@ -1374,41 +1412,48 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
 			{
 				//expired session, remove session
 				m_failcounter = 0;
-				send_remove_cookie(rep);
-				if (itt != myWebem->m_sessions.end())
+				if (oldSession != NULL)
 				{
 					// session exists (delete it from memory and database)
-					myWebem->m_sessions.erase(itt);
+					myWebem->RemoveSession(sSID);
 					removeAuthToken(sSID);
-					rep = reply::stock_reply(reply::unauthorized);
 				}
-				if (myWebem->m_authmethod == AUTH_BASIC)
-				{
-					send_authorization_request(rep);
-				}
+				send_authorization_request(rep);
 				return false;
 			}
-			if (itt != myWebem->m_sessions.end()) {
+			if (oldSession != NULL) {
 				// session already exists
-				session = itt->second;
+				session = *oldSession;
 			} else {
 				// Session does not exists
 				session.id = sSID;
 			}
 			session.auth_token = sAuthToken;
-			session.removecookie = false;
 			// Check authen_token and restore session
 			if (checkAuthToken(session)) {
 				// user is authenticated
 				return true;
 			}
-			rep = reply::stock_reply(reply::unauthorized);
-			send_remove_cookie(rep);
+
+			send_authorization_request(rep);
 			return false;
 
 		} else {
-			//invalid cookie
-			session.removecookie = true;
+			// invalid cookie
+			if (myWebem->m_authmethod != AUTH_BASIC) {
+				//Check if we need to bypass authentication (not when using basic-auth)
+				std::string cmdparam;
+				GetURICommandParameter(req.uri, cmdparam);
+				std::vector < std::string >::const_iterator itt;
+				for (itt = myWebem->myWhitelistURLs.begin(); itt != myWebem->myWhitelistURLs.end(); ++itt)
+				{
+					if (*itt == cmdparam)
+						return true;
+				}
+				// Force login form
+				send_authorization_request(rep);
+				return false;
+			}
 		}
 	}
 
@@ -1427,7 +1472,7 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
 		if (!authorize(session, req, rep))
 		{
 			if (m_failcounter > 0) {
-				_log.Log(LOG_ERROR, "Webserver: Failed authentication attempt, ignoring client request (remote addresses: %s)", session.remote_host.c_str());
+				_log.Log(LOG_ERROR, "[web:%s] Failed authentication attempt, ignoring client request (remote address: %s)", myWebem->GetPort().c_str(), session.remote_host.c_str());
 			}
 			if (m_failcounter > 2)
 			{
@@ -1442,18 +1487,16 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
 	}
 
 	//Check if we need to bypass authentication (not when using basic-auth)
+	std::string cmdparam;
+	GetURICommandParameter(req.uri, cmdparam);
 	std::vector < std::string >::const_iterator itt;
 	for (itt = myWebem->myWhitelistURLs.begin(); itt != myWebem->myWhitelistURLs.end(); ++itt)
 	{
-		if (req.uri.find(*itt) != std::string::npos)
+		if (*itt == cmdparam)
 			return true;
 	}
 
-	rep = reply::stock_reply(reply::unauthorized);
-	if (session.removecookie)
-	{
-		send_remove_cookie(rep);
-	}
+	send_authorization_request(rep);
 	return false;
 }
 
@@ -1461,7 +1504,7 @@ bool cWebemRequestHandler::CheckAuthentication(WebEmSession & session, const req
  * Check authentication token if exists and restore the user session if necessary
  */
 bool cWebemRequestHandler::checkAuthToken(WebEmSession & session) {
-	session_store* sstore = myWebem->GetSessionStore();
+	session_store_impl_ptr sstore = myWebem->GetSessionStore();
 	if (sstore == NULL) {
 		_log.Log(LOG_ERROR, "CheckAuthToken([%s_%s]) : no store defined", session.id.c_str(), session.auth_token.c_str());
 		return true;
@@ -1482,8 +1525,8 @@ bool cWebemRequestHandler::checkAuthToken(WebEmSession & session) {
 		return false;
 	}
 
-#ifdef _DEBUG
-	// _log.Log(LOG_STATUS, "CheckAuthToken(%s_%s_%s) : user authenticated", session.id.c_str(), session.auth_token.c_str(), session.username.c_str());
+#ifdef DEBUG_WWW
+	_log.Log(LOG_STATUS, "[web:%s] CheckAuthToken(%s_%s_%s) : user authenticated", myWebem->GetPort().c_str(), session.id.c_str(), session.auth_token.c_str(), session.username.c_str());
 #endif
 
 	if (session.username.empty()) {
@@ -1505,19 +1548,19 @@ bool cWebemRequestHandler::checkAuthToken(WebEmSession & session) {
 		sessionExpires = session.expires < now;
 
 		if (!userExists || sessionExpires) {
-#ifdef _DEBUG
-			_log.Log(LOG_ERROR, "CheckAuthToken(%s_%s) : cannot restore session, user not found or session expired", session.id.c_str(), session.auth_token.c_str());
+#ifdef DEBUG_WWW
+			_log.Log(LOG_ERROR, "[web:%s] CheckAuthToken(%s_%s) : cannot restore session, user not found or session expired", myWebem->GetPort().c_str(), session.id.c_str(), session.auth_token.c_str());
 #endif
 			removeAuthToken(session.id);
 			return false;
 		}
 
-		std::map<std::string, WebEmSession>::iterator itts = myWebem->m_sessions.find(session.id);
-		if (itts == myWebem->m_sessions.end()) {
-#ifdef _DEBUG
-			_log.Log(LOG_STATUS, "CheckAuthToken(%s_%s_%s) : restore session", session.id.c_str(), session.auth_token.c_str(), session.username.c_str());
+		WebEmSession* oldSession = myWebem->GetSession(session.id);
+		if (oldSession == NULL) {
+#ifdef DEBUG_WWW
+			_log.Log(LOG_STATUS, "[web:%s] CheckAuthToken(%s_%s_%s) : restore session", myWebem->GetPort().c_str(), session.id.c_str(), session.auth_token.c_str(), session.username.c_str());
 #endif
-			myWebem->m_sessions[session.id] = session;
+			myWebem->AddSession(session);
 		}
 	}
 
@@ -1525,7 +1568,7 @@ bool cWebemRequestHandler::checkAuthToken(WebEmSession & session) {
 }
 
 void cWebemRequestHandler::removeAuthToken(const std::string & sessionId) {
-	session_store* sstore = myWebem->GetSessionStore();
+	session_store_impl_ptr sstore = myWebem->GetSessionStore();
 	if (sstore != NULL) {
 		sstore->RemoveSession(sessionId);
 	}
@@ -1542,57 +1585,37 @@ char *cWebemRequestHandler::strftime_t(const char *format, const time_t rawtime)
 
 void cWebemRequestHandler::handle_request(const request& req, reply& rep)
 {
+	if (_log.isTraceEnabled())	  
+		_log.Log(LOG_TRACE, "WEBH : Host:%s Uri;%s", req.host_address.c_str(), req.uri.c_str());
+
 	// Initialize session
 	WebEmSession session;
-	session.remote_host = req.host;
+	session.remote_host = req.host_address;
+	session.reply_status = reply::ok;
 	session.isnew = false;
-	session.removecookie = false;
 	session.forcelogin = false;
 	session.rememberme = false;
 
-		rep.bIsGZIP = false;
+	rep.bIsGZIP = false;
 
 	bool isPage = myWebem->IsPageOverride(req, rep);
 	bool isAction = myWebem->IsAction(req);
 
-	// Check authentication on each page or action, if it exists.
-	bool bCheckAuthentication = false;
-	if (isPage || isAction) {
-		bCheckAuthentication = true;
-	}
-	
-	if (isPage && (req.uri.find("dologout") != std::string::npos))
+	// Respond to CORS Preflight request (for JSON API)
+	if (req.method == "OPTIONS")
 	{
-		//Remove session id based on cookie
-		const char *cookie;
-		cookie = request::get_req_header(&req, "Cookie");
-		if (cookie != NULL)
-		{
-			std::string scookie = cookie;
-			int fpos = scookie.find("SID=");
-			int upos = scookie.find("_", fpos);
-			if ((fpos != std::string::npos) && (upos != std::string::npos))
-			{
-				std::string sSID = scookie.substr(fpos + 4, upos-fpos-4);
-				_log.Log(LOG_STATUS, "Logout : remove session %s", sSID.c_str());
-				std::map<std::string, WebEmSession>::iterator itt = myWebem->m_sessions.find(sSID);
-				if (itt != myWebem->m_sessions.end())
-				{
-					myWebem->m_sessions.erase(itt);
-				}
-				removeAuthToken(sSID);
-			}
-		}
-		session.username = "";
-		session.rights = -1;
-		session.forcelogin = true;
-		_log.Log(LOG_ERROR, "Setting removecookie = true");
-		session.removecookie = true;
-		bCheckAuthentication = false; // do not authenticate the user, just logout
+		rep.status = reply::ok;
+		reply::add_header(&rep, "Content-Length", "0");
+		reply::add_header(&rep, "Content-Type", "text/plain");
+		reply::add_header(&rep, "Access-Control-Max-Age", "3600");
+		reply::add_header(&rep, "Access-Control-Allow-Origin", "*");
+		reply::add_header(&rep, "Access-Control-Allow-Methods", "GET, POST");
+		reply::add_header(&rep, "Access-Control-Allow-Headers", "Authorization, Content-Type");
+		return;
 	}
 
-	// Check user authentication on each page or action, if it exists.
-	if (bCheckAuthentication && !CheckAuthentication(session, req, rep)) {
+	// Check authentication on each page or action, if it exists.
+	if ((isPage || isAction) && !CheckAuthentication(session, req, rep)) {
 		return;
 	}
 
@@ -1607,11 +1630,29 @@ void cWebemRequestHandler::handle_request(const request& req, reply& rep)
 			return;
 		}
 		myWebem->CheckForAction(session, requestCopy);
+		if (!requestCopy.uri.empty())
+		{
+			if ((requestCopy.method == "POST") && (requestCopy.uri[0] != '/'))
+			{
+				//Send back as data instead of a redirect uri
+				rep.status = reply::ok;
+				rep.content = requestCopy.uri;
+				reply::add_header(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+				reply::add_header(&rep, "Last-Modified", make_web_time(mytime(NULL)), true);
+				reply::add_header(&rep, "Content-Type", "application/json;charset=UTF-8");
+				return;
+			}
+		}
 	}
 
 	modify_info mInfo;
 	if (!myWebem->CheckForPageOverride(session, requestCopy, rep))
 	{
+		if (session.reply_status != reply::ok)
+		{
+			rep = reply::stock_reply(static_cast<reply::status_type>(session.reply_status));
+			return;
+		}
 		// do normal handling
 		try
 		{
@@ -1639,12 +1680,14 @@ void cWebemRequestHandler::handle_request(const request& req, reply& rep)
 			|| content_type == "application/javascript"
 			)
 		{
-			// check if content is not gzipped, include won´t work with non-text content
+			// check if content is not gzipped, include won't work with non-text content
 			if (!rep.bIsGZIP) {
 				// Find and include any special cWebem strings
 				if (!myWebem->Include(rep.content)) {
 					if (mInfo.mtime_support && !mInfo.is_modified) {
-						//_log.Log(LOG_STATUS, "%s not modified (1).", req.uri.c_str());
+#ifdef DEBUG_WWW
+						_log.Log(LOG_STATUS, "[web:%s] %s not modified (1).", myWebem->GetPort().c_str(), req.uri.c_str());
+#endif
 						rep = reply::stock_reply(reply::not_modified);
 						return;
 					}
@@ -1654,78 +1697,97 @@ void cWebemRequestHandler::handle_request(const request& req, reply& rep)
 				// ( Firefox ignores this, but apparently some browsers truncate display without it.
 				// fix provided by http://www.codeproject.com/Members/jaeheung72 )
 
-				reply::AddHeader(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+				reply::add_header(&rep, "Content-Length", boost::lexical_cast<std::string>(rep.content.size()));
+				reply::add_header(&rep, "Last-Modified", make_web_time(mytime(NULL)), true);
 
 				//check gzip support if yes, send it back in gzip format
 				CompressWebOutput(req, rep);
 			}
 
 			// tell browser that we are using UTF-8 encoding
-			reply::AddHeader(&rep, "Content-Type", content_type + ";charset=UTF-8");
+			reply::add_header(&rep, "Content-Type", content_type + ";charset=UTF-8");
 		}
 		else if (content_type.find("image/")!=std::string::npos)
 		{
 			if (mInfo.mtime_support && !mInfo.is_modified) {
 				rep = reply::stock_reply(reply::not_modified);
-				//_log.Log(LOG_STATUS, "%s not modified (2).", req.uri.c_str());
+#ifdef DEBUG_WWW
+				_log.Log(LOG_STATUS, "[web:%s] %s not modified (2).", myWebem->GetPort().c_str(), req.uri.c_str());
+#endif
 				return;
 			}
 			//Cache images
-			reply::AddHeader(&rep, "Date", strftime_t("%a, %d %b %Y %H:%M:%S GMT", mytime(NULL)));
-			reply::AddHeader(&rep, "Expires", "Sat, 26 Dec 2099 11:40:31 GMT");
+			reply::add_header(&rep, "Date", strftime_t("%a, %d %b %Y %H:%M:%S GMT", mytime(NULL)));
+			reply::add_header(&rep, "Expires", "Sat, 26 Dec 2099 11:40:31 GMT");
 		}
 		else {
 			if (mInfo.mtime_support && !mInfo.is_modified) {
 				rep = reply::stock_reply(reply::not_modified);
-				//_log.Log(LOG_STATUS, "%s not modified (3).", req.uri.c_str());
+#ifdef DEBUG_WWW
+				_log.Log(LOG_STATUS, "[web:%s] %s not modified (3).", myWebem->GetPort().c_str(), req.uri.c_str());
+#endif
 				return;
 			}
 		}
 	}
 	else
 	{
+		if (session.reply_status != reply::ok)
+		{
+			rep = reply::stock_reply(static_cast<reply::status_type>(session.reply_status));
+			return;
+		}
+
 		if (!rep.bIsGZIP) {
 			CompressWebOutput(req, rep);
 		}
 	}
 
 	// Set timeout to make session in use
-	session.timeout = mytime(NULL) + SESSION_TIMEOUT;
-	// Clean up timed out sessions
-	myWebem->CleanTimedOutSessions();
+	session.timeout = mytime(NULL) + SHORT_SESSION_TIMEOUT;
 
-	if (session.isnew == true)
-	{
+	if (session.isnew == true) {
 		// Create a new session ID
 		session.id = generateSessionID();
 		session.expires = session.timeout;
 		if (session.rememberme) {
-			// Extend session by a year
-			session.expires += (86400 * 365);
+			// Extend session by 30 days
+			session.expires += LONG_SESSION_TIMEOUT;
 		}
 		session.auth_token = generateAuthToken(session, req); // do it after expires to save it also
 		session.isnew = false;
-		myWebem->m_sessions[session.id] = session;
+		myWebem->AddSession(session);
 		send_cookie(rep, session);
-	}
-	else if (session.removecookie == true)
-	{
-		// Invalid cookie, unauthorized or logout
+
+	} else if (session.forcelogin == true) {
+#ifdef DEBUG_WWW
+		_log.Log(LOG_STATUS, "[web:%s] Logout : remove session %s", myWebem->GetPort().c_str(), session.id.c_str());
+#endif
+		myWebem->RemoveSession(session.id);
 		removeAuthToken(session.id);
-		send_remove_cookie(rep);
-	}
-	else if (session.id.size()>0)
-	{
+		if (myWebem->m_authmethod == AUTH_BASIC) {
+			send_authorization_request(rep);
+		}
+
+	} else if (session.id.size() > 0) {
 		// Renew session expiration and authentication token
-		std::map<std::string, WebEmSession>::iterator itt = myWebem->m_sessions.find(session.id);
-		if (itt != myWebem->m_sessions.end())
+		WebEmSession* memSession = myWebem->GetSession(session.id);
+		if (memSession != NULL)
 		{
 			time_t now = mytime(NULL);
-			if (myWebem->m_sessions[session.id].expires - 60 < now)
+			// Renew session expiration date if half of session duration has been exceeded ("dont remember me" sessions, 10 minutes)
+			if (memSession->expires - (SHORT_SESSION_TIMEOUT / 2) < now)
 			{
-				myWebem->m_sessions[session.id].expires = now + SESSION_TIMEOUT;
-				myWebem->m_sessions[session.id].auth_token = generateAuthToken(myWebem->m_sessions[session.id], req); // do it after expires to save it also
-				send_cookie(rep, myWebem->m_sessions[session.id]);
+				memSession->expires = now + SHORT_SESSION_TIMEOUT;
+				memSession->auth_token = generateAuthToken(*memSession, req); // do it after expires to save it also
+				send_cookie(rep, *memSession);
+			}
+			// Renew session expiration date if half of session duration has been exceeded ("remember me" sessions, 30 days)
+			else if ((memSession->expires > SHORT_SESSION_TIMEOUT + now) && (memSession->expires - (LONG_SESSION_TIMEOUT / 2) < now))
+			{
+				memSession->expires = now + LONG_SESSION_TIMEOUT;
+				memSession->auth_token = generateAuthToken(*memSession, req); // do it after expires to save it also
+				send_cookie(rep, *memSession);
 			}
 		}
 	}

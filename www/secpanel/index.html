@@ -7,7 +7,7 @@
 	<link href="css/style.less" rel="stylesheet/less" />
 	<script src="js/less.js"></script>
 	<script src="js/ion.sound.min.js"></script>
-	<script src="../js/jquery-1.11.3.min.js"></script>
+	<script src="../js/jquery-1.12.0.min.js"></script>
 	<script src="../js/i18next-1.8.0.min.js"></script> 
 	<script src="../js/domoticz.js"></script>
 	<script src="../js/md5.js"></script>
@@ -62,8 +62,13 @@
 						$('#digitdisplay').val("* "+displaytext+" *");
 					}
 				},
-				error: function(){
-					ShowError('NoConnect');
+				error: function(data){
+					if (data.status==401) { // 401 : Unauthorized
+						window.location = "/index.html";
+					}
+					else {
+						ShowError('NoConnect');
+					}
 					return;
 				}
 			});

@@ -59,16 +59,21 @@ const unsigned char PKT_VERIFY_OK[5] = { 0x08, 0x01, 0x00, 0x00, 0x00 };
 //
 //Class RFXComSerial
 //
-RFXComSerial::RFXComSerial(const int ID, const std::string& devname, unsigned int baud_rate)
+RFXComSerial::RFXComSerial(const int ID, const std::string& devname, unsigned int baud_rate) :
+m_szSerialPort(devname)
 {
 	m_HwdID=ID;
-	m_szSerialPort=devname;
 	m_iBaudRate=baud_rate;
+	
 	m_stoprequested=false;
 	m_bReceiverStarted = false;
 	m_bInBootloaderMode = false;
 	m_bStartFirmwareUpload = false;
-	m_szUploadMessage = "";
+	m_FirmwareUploadPercentage = 0;
+	m_bHaveRX = false;
+	m_rx_tot_bytes = 0;
+	m_retrycntr = RETRY_DELAY;
+
 	m_serial.setPort(m_szSerialPort);
 	m_serial.setBaudrate(m_iBaudRate);
 	m_serial.setBytesize(serial::eightbits);
@@ -82,7 +87,7 @@ RFXComSerial::RFXComSerial(const int ID, const std::string& devname, unsigned in
 
 RFXComSerial::~RFXComSerial()
 {
-	clearReadCallback();
+
 }
 
 bool RFXComSerial::StartHardware()
@@ -109,18 +114,7 @@ bool RFXComSerial::StopHardware()
     sleep_milliseconds(10);
 	if (m_serial.isOpen())
 		m_serial.close();
-	if (isOpen())
-	{
-		try {
-			clearReadCallback();
-			close();
-			doClose();
-			setErrorStatus(true);
-		} catch(...)
-		{
-			//Don't throw from a Stop command
-		}
-	}
+	terminate();
 	m_bIsStarted=false;
 	return true;
 }
@@ -143,19 +137,7 @@ void RFXComSerial::Do_Work()
 		if (m_bStartFirmwareUpload)
 		{
 			m_bStartFirmwareUpload = false;
-			if (isOpen())
-			{
-				try {
-					clearReadCallback();
-					close();
-					doClose();
-					setErrorStatus(true);
-				}
-				catch (...)
-				{
-					//Don't throw from a Stop command
-				}
-			}
+			terminate();
 			try {
 				sleep_seconds(1);
 				UpgradeFirmware();
@@ -623,7 +605,6 @@ bool RFXComSerial::EraseMemory(const int StartAddress, const int StopAddress)
 	_log.Log(LOG_STATUS, m_szUploadMessage.c_str());
 	int BootAddr = StartAddress;
 
-	int blockcnt = 1;
 	while (BootAddr < StopAddress)
 	{
 		int nBlocks = ((StopAddress - StartAddress + 1) * PKT_bytesperaddr) / PKT_eraseblock;
@@ -794,19 +775,7 @@ void RFXComSerial::readCallback(const char *data, size_t len)
 			if (bRet == false)
 			{
 				//close serial connection, and restart
-				if (isOpen())
-				{
-					try {
-						clearReadCallback();
-						close();
-						doClose();
-						setErrorStatus(true);
-					}
-					catch (...)
-					{
-						//Don't throw from a Stop command
-					}
-				}
+				terminate();
 
 			}
 		}
@@ -815,56 +784,6 @@ void RFXComSerial::readCallback(const char *data, size_t len)
 	{
 
 	}
-}
-
-bool RFXComSerial::onInternalMessage(const unsigned char *pBuffer, const size_t Len)
-{
-	if (!m_bEnableReceive)
-		return true; //receiving not enabled
-
-	size_t ii = 0;
-	while (ii < Len)
-	{
-		if (m_rxbufferpos == 0)	//1st char of a packet received
-		{
-			if (pBuffer[ii] == 0) //ignore first char if 00
-				return true;
-		}
-		m_rxbuffer[m_rxbufferpos] = pBuffer[ii];
-		m_rxbufferpos++;
-		if (m_rxbufferpos >= sizeof(m_rxbuffer)-1)
-		{
-			//something is out of sync here!!
-			//restart
-			_log.Log(LOG_ERROR, "RFXCOM: input buffer out of sync, going to restart!....");
-			m_rxbufferpos = 0;
-			return false;
-		}
-		if (m_rxbufferpos > m_rxbuffer[0])
-		{
-			if (!m_bReceiverStarted)
-			{
-				if (m_rxbuffer[1] == pTypeInterfaceMessage)
-				{
-					const tRBUF *pResponse = (tRBUF *)&m_rxbuffer;
-					if (pResponse->IRESPONSE.subtype == cmdStartRec)
-					{
-						m_bReceiverStarted = strstr((char*)&pResponse->IRESPONSE.msg1, "Copyright RFXCOM") != NULL;
-					}
-					else
-					{
-						_log.Log(LOG_STATUS, "RFXCOM: Please upgrade your RFXTrx Firmware!...");
-						m_bReceiverStarted = true;
-					}
-				}
-			}
-			else
-				sDecodeRXMessage(this, (const unsigned char *)&m_rxbuffer, NULL, -1);
-			m_rxbufferpos = 0;    //set to zero to receive next message
-		}
-		ii++;
-	}
-	return true;
 }
 
 bool RFXComSerial::WriteToHardware(const char *pdata, const unsigned char length)
@@ -880,13 +799,13 @@ bool RFXComSerial::WriteToHardware(const char *pdata, const unsigned char length
 //Webserver helpers
 namespace http {
 	namespace server {
-		char * CWebServer::RFXComUpgradeFirmware(WebEmSession & session, const request& req)
+		void CWebServer::RFXComUpgradeFirmware(WebEmSession & session, const request& req, std::string & redirect_uri)
 		{
-			m_retstr = "/index.html";
+			redirect_uri = "/index.html";
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return (char*)m_retstr.c_str();
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string hardwareid = request::findValue(&req, "hardwareid");
@@ -894,7 +813,7 @@ namespace http {
 
 			if (firmwarefile.empty())
 			{
-				return (char*)m_retstr.c_str();
+				return;
 			}
 
 			CDomoticzHardwareBase *pHardware = NULL;
@@ -911,7 +830,7 @@ namespace http {
 					pHardware = m_mainworker.GetHardwareByType(HTYPE_RFXtrx868);
 					if (pHardware == NULL)
 					{
-						return (char*)m_retstr.c_str();
+						return;
 					}
 				}
 			}
@@ -923,7 +842,7 @@ namespace http {
 			std::ofstream outfile;
 			outfile.open(outputfile.c_str(), std::ios::out | std::ios::binary | std::ios::trunc);
 			if (!outfile.is_open())
-				return (char*)m_retstr.c_str();
+				return;
 			outfile << firmwarefile;
 			outfile.flush();
 			outfile.close();
@@ -934,31 +853,30 @@ namespace http {
 				(pHardware->HwdType == HTYPE_RFXtrx868)
 				)
 			{
-				RFXComSerial *pRFXComSerial = (RFXComSerial *)pHardware;
+				RFXComSerial *pRFXComSerial = reinterpret_cast<RFXComSerial *>(pHardware);
 				pRFXComSerial->UploadFirmware(outputfile);
 			}
-			return (char*)m_retstr.c_str();
 		}
-		char * CWebServer::SetRFXCOMMode(WebEmSession & session, const request& req)
+		void CWebServer::SetRFXCOMMode(WebEmSession & session, const request& req, std::string & redirect_uri)
 		{
-			m_retstr = "/index.html";
+			redirect_uri = "/index.html";
 
 			if (session.rights != 2)
 			{
-				//No admin user, and not allowed to be here
-				return (char*)m_retstr.c_str();
+				session.reply_status = reply::forbidden;
+				return; //Only admin user allowed
 			}
 
 			std::string idx = request::findValue(&req, "idx");
 			if (idx == "") {
-				return (char*)m_retstr.c_str();
+				return;
 			}
 			std::vector<std::vector<std::string> > result;
 
 			result = m_sql.safe_query("SELECT Mode1, Mode2, Mode3, Mode4, Mode5, Mode6 FROM Hardware WHERE (ID='%q')",
 				idx.c_str());
 			if (result.size() < 1)
-				return (char*)m_retstr.c_str();
+				return;
 
 			unsigned char Mode1 = atoi(result[0][0].c_str());
 			unsigned char Mode2 = atoi(result[0][1].c_str());
@@ -1004,7 +922,6 @@ namespace http {
 
 			m_mainworker.SetRFXCOMHardwaremodes(atoi(idx.c_str()), Response.ICMND.freqsel, Response.ICMND.xmitpwr, Response.ICMND.msg3, Response.ICMND.msg4, Response.ICMND.msg5, Response.ICMND.msg6);
 
-			return (char*)m_retstr.c_str();
 		}
 		void CWebServer::Cmd_RFXComGetFirmwarePercentage(WebEmSession & session, const request& req, Json::Value &root)
 		{
@@ -1034,7 +951,7 @@ namespace http {
 					(pHardware->HwdType == HTYPE_RFXtrx868)
 					)
 				{
-					RFXComSerial *pRFXComSerial = (RFXComSerial *)pHardware;
+					RFXComSerial *pRFXComSerial = reinterpret_cast<RFXComSerial *>(pHardware);
 					root["status"] = "OK";
 					root["percentage"] = pRFXComSerial->GetUploadPercentage();
 					root["message"] = pRFXComSerial->GetUploadMessage();

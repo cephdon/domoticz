@@ -10,7 +10,8 @@ struct tScheduleItem
 	bool bIsScene;
 	bool bIsThermostat;
 	std::string DeviceName;
-	unsigned long long RowID;
+	uint64_t RowID;
+	uint64_t TimerID;
 	unsigned char startDay;
 	unsigned char startMonth;
 	unsigned short startYear;
@@ -28,6 +29,12 @@ struct tScheduleItem
 	int Occurence;
 	//internal
 	time_t startTime;
+
+	bool operator==(const tScheduleItem &comp) const {
+		return (this->TimerID == comp.TimerID)
+			&& (this->bIsScene == comp.bIsScene)
+			&& (this->bIsThermostat == comp.bIsThermostat);
+	}
 };
 
 class CScheduler

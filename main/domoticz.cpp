@@ -44,7 +44,7 @@
 	#include <string.h> 
 #endif
 
-#ifdef __gnu_linux__
+#ifdef HAVE_EXECINFO_H
 #include <execinfo.h>
 static void dumpstack(void) {
 	// Notes :
@@ -73,10 +73,14 @@ const char *szHelp=
 	"Usage: Domoticz -www port -verbose x\n"
 	"\t-www port (for example -www 8080, or -www 0 to disable http)\n"
 	"\t-wwwbind address (for example -wwwbind 0.0.0.0 or -wwwbind 192.168.0.20)\n"
-#ifdef NS_ENABLE_SSL
+#ifdef WWW_ENABLE_SSL
 	"\t-sslwww port (for example -sslwww 443, or -sslwww 0 to disable https)\n"
 	"\t-sslcert file_path (for example /opt/domoticz/server_cert.pem)\n"
-	"\t-sslpass passphrase for private key in certificate\n"
+	"\t-sslkey file_path (if different from certificate file)\n"
+	"\t-sslpass passphrase (to access to server private key in certificate)\n"
+	"\t-sslmethod method (for SSL method)\n"
+	"\t-ssloptions options (for SSL options, default is 'default_workarounds,no_sslv2,no_sslv3,no_tlsv1,no_tlsv1_1,single_dh_use')\n"
+	"\t-ssldhparam file_path (for SSL DH parameters)\n"
 #endif
 #if defined WIN32
 	"\t-wwwroot file_path (for example D:\\www)\n"
@@ -88,7 +92,7 @@ const char *szHelp=
 	"\t-userdata file_path (for example /opt/domoticz)\n"
 #endif
 	"\t-webroot additional web root, useful with proxy servers (for example domoticz)\n"
-	"\t-verbose x (where x=0 is none, x=1 is debug)\n"
+	"\t-verbose x (where x=0 is none, x=1 is all important, x=2 is debug)\n"
 	"\t-startupdelay seconds (default=0)\n"
 	"\t-nowwwpwd (in case you forgot the web server username/password)\n"
 	"\t-nocache (do not return appcache, use only when developing the web pages)\n"
@@ -100,15 +104,38 @@ const char *szHelp=
 #else
 	"\t-log file_path (for example /var/log/domoticz.log)\n"
 #endif
-	"\t-loglevel (0=All, 1=Status+Error, 2=Error)\n"
+	"\t-loglevel (0=All, 1=Status+Error, 2=Error , 3= Trace )\n"
+	"\t-debug    allow log trace level 3 \n"
 	"\t-notimestamps (do not prepend timestamps to logs; useful with syslog, etc.)\n"
+	"\t-php_cgi_path (for example /usr/bin/php-cgi)\n"
 #ifndef WIN32
 	"\t-daemon (run as background daemon)\n"
 	"\t-pidfile pid file location (for example /var/run/domoticz.pid)\n"
-	"\t-syslog (use syslog as log output)\n"
+	"\t-syslog [user|daemon|local0 .. local7] (use syslog as log output, defaults to facility 'user')\n"
 #endif
 	"";
 
+#ifndef WIN32
+struct _facilities {
+	const char* facname;
+	const int   facvalue;
+};
+
+static const _facilities facilities[] =
+{
+	{ "daemon", LOG_DAEMON },
+	{ "user",   LOG_USER },
+	{ "local0", LOG_LOCAL0 },
+	{ "local1", LOG_LOCAL1 },
+	{ "local2", LOG_LOCAL2 },
+	{ "local3", LOG_LOCAL3 },
+	{ "local4", LOG_LOCAL4 },
+	{ "local5", LOG_LOCAL5 },
+	{ "local6", LOG_LOCAL6 },
+	{ "local7", LOG_LOCAL7 }
+}; 
+std::string logfacname = "user";
+#endif
 std::string szStartupFolder;
 std::string szUserDataFolder;
 std::string szWWWFolder;
@@ -135,6 +162,7 @@ CLogger _log;
 http::server::CWebServerHelper m_webservers;
 CSQLHelper m_sql;
 CNotificationHelper m_notifications;
+
 std::string logfile = "";
 bool g_bStopApplication = false;
 bool g_bUseSyslog = false;
@@ -201,13 +229,6 @@ void daemonize(const char *rundir, const char *pidfile)
 	struct sigaction newSigAction;
 	sigset_t newSigSet;
 
-	/* Check if parent process id is set */
-	if (getppid() == 1)
-	{
-		/* PPID exists, therefore we are already a daemon */
-		return;
-	}
-
 	/* Set signal mask - signals we want to block */
 	sigemptyset(&newSigSet);
 	sigaddset(&newSigSet, SIGCHLD);  /* ignore child - i.e. we don't need to wait for it */
@@ -228,7 +249,7 @@ void daemonize(const char *rundir, const char *pidfile)
 	sigaction(SIGABRT, &newSigAction, NULL);    // catch abnormal termination signal
 	sigaction(SIGILL,  &newSigAction, NULL);    // catch invalid program image
 #ifndef WIN32
-	sigaction(SIGHUP,  &newSigAction, NULL);    // catch HUP, for logrotation
+	sigaction(SIGHUP,  &newSigAction, NULL);    // catch HUP, for log rotation
 #endif
 	
 	/* Fork*/
@@ -268,7 +289,12 @@ void daemonize(const char *rundir, const char *pidfile)
 	sprintf(str, "%d\n", getpid());
 
 	/* write pid to lockfile */
-	write(pidFilehandle, str, strlen(str));
+	int twrite=write(pidFilehandle, str, strlen(str));
+	if (twrite != strlen(str))
+	{
+		syslog(LOG_INFO, "Could not write to lock file %s, exiting", pidfile);
+		exit(EXIT_FAILURE);
+	}
 
 
 	/* Child continues */
@@ -299,13 +325,25 @@ void daemonize(const char *rundir, const char *pidfile)
 	i = open("/dev/null", O_RDWR);
 
 	/* STDOUT */
-	dup(i);
+	int dret = dup(i);
+	if (dret == -1)
+	{
+		_log.Log(LOG_ERROR, "Could not set STDOUT descriptor !");
+	}
 
 	/* STDERR */
-	dup(i);
+	dret = dup(i);
+	if (dret == -1)
+	{
+		_log.Log(LOG_ERROR, "Could not set STDERR descriptor !");
+	}
 
-	chdir(rundir); /* change running directory */
-} 
+	int cdret = chdir(rundir); /* change running directory */
+	if (cdret == -1)
+	{
+		_log.Log(LOG_ERROR, "Could not change running directory !");
+	}
+}
 #endif
 
 #if defined(_WIN32)
@@ -334,6 +372,87 @@ void daemonize(const char *rundir, const char *pidfile)
 		sysctl(mib, 4, pathName, &cb, NULL, 0);
 		return cb;
 	}
+#elif defined(__OpenBSD__)
+#include <sys/sysctl.h>
+static size_t getExecutablePathName(char* pathName, size_t pathNameCapacity)
+{
+        int mib[4];
+        char **argv;
+        size_t len = 0;
+        const char *comm;
+
+        mib[0] = CTL_KERN;
+        mib[1] = KERN_PROC_ARGS;
+        mib[2] = getpid();
+        mib[3] = KERN_PROC_ARGV;
+        pathName[0] = '\0';
+        if (sysctl(mib, 4, NULL, &len, NULL, 0) < 0)
+        {
+                return 0;
+        }
+
+        if (!(argv = (char**)malloc(len)))
+        {
+                return 0;
+        }
+
+        if (sysctl(mib, 4, argv, &len, NULL, 0) < 0)
+        {
+                len = 0;
+                goto finally;
+        }
+
+	        len = 0;
+        comm = argv[0];
+
+        if (*comm == '/' || *comm == '.')
+        {
+                // In OpenBSD PATH_MAX is 1024
+                char * fullPath = (char*) malloc(PATH_MAX);
+                if(!fullPath)
+                {
+                        goto finally;
+                }
+
+                if (realpath(comm, fullPath))
+                {
+                        if(pathNameCapacity > strnlen(fullPath, PATH_MAX))
+                        {
+                                strlcpy(pathName, fullPath, pathNameCapacity);
+                                len = strnlen(pathName, pathNameCapacity);
+                                free(fullPath);
+                        }
+                }
+        }
+        else
+        {
+                char *sp;
+                char *xpath = strdup(getenv("PATH"));
+                char *path = strtok_r(xpath, ":", &sp);
+                struct stat st;
+
+		if (!xpath)
+                {
+                        goto finally;
+                }
+
+                while (path)
+                {
+                        snprintf(pathName, pathNameCapacity, "%s/%s", path, comm);
+                        if (!stat(pathName, &st) && (st.st_mode & S_IXUSR))
+                        {
+                                break;
+                        }
+                        pathName[0] = '\0';
+                        path = strtok_r(NULL, ":", &sp);
+                }
+                free(xpath);
+        }
+
+  finally:
+        free(argv);
+        return len;
+}
 #elif defined(__APPLE__) /* elif of: #elif defined(__linux__) */
 	#include <mach-o/dyld.h>
 	static size_t getExecutablePathName(char* pathName, size_t pathNameCapacity)
@@ -419,8 +538,6 @@ int main(int argc, char**argv)
 			_log.Log(LOG_ERROR, "Please specify an output log file");
 			return 1;
 		}
-		logfile = cmdLine.GetSafeArgument("-log", 0, "domoticz.log");
-		_log.SetOutputFile(logfile.c_str());
 	}
 	if (cmdLine.HasSwitch("-loglevel"))
 	{
@@ -429,9 +546,19 @@ int main(int argc, char**argv)
 			_log.Log(LOG_ERROR, "Please specify logfile output level (0=All, 1=Status+Error, 2=Error)");
 			return 1;
 		}
-		int Level = atoi(cmdLine.GetSafeArgument("-loglevel", 0, "").c_str());
-		_log.SetVerboseLevel((_eLogFileVerboseLevel)Level);
 	}
+	if (cmdLine.HasSwitch("-verbose"))
+	{
+		if (cmdLine.GetArgumentCount("-verbose") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify a verbose level");
+			return 1;
+		}
+	}
+	if (cmdLine.HasSwitch("-debug"))
+		_log.SetLogDebug(true);
+	else
+		_log.SetLogDebug(false);
 	if (cmdLine.HasSwitch("-notimestamps"))
 	{
 		_log.EnableLogTimestamps(false);
@@ -487,7 +614,11 @@ int main(int argc, char**argv)
 	std::string sLine = "";
 	std::ifstream infile;
 
+#if defined(__FreeBSD__)
+	infile.open("/compat/linux/proc/cpuinfo");
+#else
 	infile.open("/proc/cpuinfo");
+#endif
 	if (infile.is_open())
 	{
 		while (!infile.eof())
@@ -518,7 +649,7 @@ int main(int argc, char**argv)
 		else if (file_exist("/sys/devices/virtual/thermal/thermal_zone0/temp"))
 		{
 			//_log.Log(LOG_STATUS,"System: ODroid");
-			szInternalTemperatureCommand="cat /sys/devices/virtual/thermal/thermal_zone0/temp | awk '{ printf (\"temp=%0.2f\\n\",$1/1000); }'";
+			szInternalTemperatureCommand="cat /sys/devices/virtual/thermal/thermal_zone0/temp | awk '{ if ($1 < 100) printf(\"temp=%d\\n\",$1); else printf (\"temp=%0.2f\\n\",$1/1000); }'";
 			bHasInternalTemperature = true;
 		}
 	}
@@ -532,6 +663,15 @@ int main(int argc, char**argv)
 		szInternalCurrentCommand = "cat /sys/class/power_supply/ac/current_now | awk '{ printf (\"curr=%0.2f\\n\",$1/1000000); }'";
 		bHasInternalCurrent = true;
 	}
+#if defined (__OpenBSD__)
+
+	szInternalTemperatureCommand="sysctl hw.sensors.acpitz0.temp0|sed -e 's/.*temp0/temp/'|cut -d ' ' -f 1";
+	bHasInternalTemperature = true;
+	szInternalVoltageCommand = "sysctl hw.sensors.acpibat0.volt1|sed -e 's/.*volt1/volt/'|cut -d ' ' -f 1";
+	bHasInternalVoltage = true;
+	//bHasInternalCurrent = true;
+
+#endif
 	_log.Log(LOG_STATUS,"Startup Path: %s", szStartupFolder.c_str());
 #endif
 
@@ -568,6 +708,7 @@ int main(int argc, char**argv)
 		sleep_seconds(DelaySeconds);
 	}
 
+	http::server::server_settings webserver_settings;
 	if (cmdLine.HasSwitch("-wwwbind"))
 	{
 		if (cmdLine.GetArgumentCount("-wwwbind") != 1)
@@ -575,8 +716,7 @@ int main(int argc, char**argv)
 			_log.Log(LOG_ERROR, "Please specify an address");
 			return 1;
 		}
-		std::string wwwbind = cmdLine.GetSafeArgument("-wwwbind", 0, "0.0.0.0");
-		m_mainworker.SetWebserverAddress(wwwbind);
+		webserver_settings.listening_address = cmdLine.GetSafeArgument("-wwwbind", 0, "0.0.0.0");
 	}
 
 	if (cmdLine.HasSwitch("-www"))
@@ -586,12 +726,40 @@ int main(int argc, char**argv)
 			_log.Log(LOG_ERROR, "Please specify a port");
 			return 1;
 		}
-		std::string wwwport = cmdLine.GetSafeArgument("-www", 0, "8080");
-		if (wwwport == "0")
-			wwwport.clear();//HTTP server disabled
-		m_mainworker.SetWebserverPort(wwwport);
+		std::string wwwport = cmdLine.GetSafeArgument("-www", 0, "");
+		int iPort = (int)atoi(wwwport.c_str());
+		if ((iPort < 0) || (iPort > 32767))
+		{
+			_log.Log(LOG_ERROR, "Please specify a valid www port");
+			return 1;
+		}
+		webserver_settings.listening_port = wwwport;
 	}
-#ifdef NS_ENABLE_SSL
+
+	if (cmdLine.HasSwitch("-php_cgi_path"))
+	{
+		if (cmdLine.GetArgumentCount("-php_cgi_path") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify the path to the php-cgi command");
+			return 1;
+		}
+		webserver_settings.php_cgi_path = cmdLine.GetSafeArgument("-php_cgi_path", 0, "");
+	}
+	if (cmdLine.HasSwitch("-wwwroot"))
+	{
+		if (cmdLine.GetArgumentCount("-wwwroot") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify a WWW root path");
+			return 1;
+		}
+		std::string szroot = cmdLine.GetSafeArgument("-wwwroot", 0, "");
+		if (szroot.size() != 0)
+			szWWWFolder = szroot;
+	}
+	webserver_settings.www_root = szWWWFolder;
+	m_mainworker.SetWebserverSettings(webserver_settings);
+#ifdef WWW_ENABLE_SSL
+	http::server::ssl_server_settings secure_webserver_settings;
 	if (cmdLine.HasSwitch("-sslwww"))
 	{
 		if (cmdLine.GetArgumentCount("-sslwww") != 1)
@@ -599,31 +767,85 @@ int main(int argc, char**argv)
 			_log.Log(LOG_ERROR, "Please specify a port");
 			return 1;
 		}
-		std::string wwwport = cmdLine.GetSafeArgument("-sslwww", 0, "443");
-		if (wwwport == "0")
-			wwwport.clear();//HTTPS server disabled
-		m_mainworker.SetSecureWebserverPort(wwwport);
+		std::string wwwport = cmdLine.GetSafeArgument("-sslwww", 0, "");
+		int iPort = (int)atoi(wwwport.c_str());
+		if ((iPort < 0) || (iPort > 32767))
+		{
+			_log.Log(LOG_ERROR, "Please specify a valid sslwww port");
+			return 1;
+		}
+		secure_webserver_settings.listening_port = wwwport;
+	}
+	if (!webserver_settings.listening_address.empty()) {
+		// Secure listening address has to be equal
+		secure_webserver_settings.listening_address = webserver_settings.listening_address;
 	}
 	if (cmdLine.HasSwitch("-sslcert"))
 	{
 		if (cmdLine.GetArgumentCount("-sslcert") != 1)
 		{
-			_log.Log(LOG_ERROR, "Please specify the file path");
+			_log.Log(LOG_ERROR, "Please specify a file path for your server certificate file");
 			return 1;
 		}
-		std::string ca_cert = cmdLine.GetSafeArgument("-sslcert", 0, "./server_cert.pem");
-		m_mainworker.SetSecureWebserverCert(ca_cert);
+		secure_webserver_settings.cert_file_path = cmdLine.GetSafeArgument("-sslcert", 0, "");
+		secure_webserver_settings.private_key_file_path = secure_webserver_settings.cert_file_path;
+	}
+	if (cmdLine.HasSwitch("-sslkey"))
+	{
+		if (cmdLine.GetArgumentCount("-sslkey") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify a file path for your server SSL key file");
+			return 1;
+		}
+		secure_webserver_settings.private_key_file_path = cmdLine.GetSafeArgument("-sslkey", 0, "");
 	}
 	if (cmdLine.HasSwitch("-sslpass"))
 	{
 		if (cmdLine.GetArgumentCount("-sslpass") != 1)
 		{
-			_log.Log(LOG_ERROR, "Please specify a passphrase for your certificate file");
+			_log.Log(LOG_ERROR, "Please specify a passphrase to access to your server private key in certificate file");
 			return 1;
 		}
-		std::string ca_passphrase = cmdLine.GetSafeArgument("-sslpass", 0, "");
-		m_mainworker.SetSecureWebserverPass(ca_passphrase);
+		secure_webserver_settings.private_key_pass_phrase = cmdLine.GetSafeArgument("-sslpass", 0, "");
 	}
+	if (cmdLine.HasSwitch("-sslmethod"))
+	{
+		if (cmdLine.GetArgumentCount("-sslmethod") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify a SSL method");
+			return 1;
+		}
+		secure_webserver_settings.ssl_method = cmdLine.GetSafeArgument("-sslmethod", 0, "");
+	}
+	if (cmdLine.HasSwitch("-ssloptions"))
+	{
+		if (cmdLine.GetArgumentCount("-ssloptions") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify SSL options");
+			return 1;
+		}
+		secure_webserver_settings.options = cmdLine.GetSafeArgument("-ssloptions", 0, "");
+	}
+	if (cmdLine.HasSwitch("-ssldhparam"))
+	{
+		if (cmdLine.GetArgumentCount("-ssldhparam") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify a file path for the SSL DH parameters file");
+			return 1;
+		}
+		secure_webserver_settings.tmp_dh_file_path = cmdLine.GetSafeArgument("-ssldhparam", 0, "");
+	}
+	if (cmdLine.HasSwitch("-php_cgi_path"))
+	{
+		if (cmdLine.GetArgumentCount("-php_cgi_path") != 1)
+		{
+			_log.Log(LOG_ERROR, "Please specify the path to the php-cgi command");
+			return 1;
+		}
+		secure_webserver_settings.php_cgi_path = cmdLine.GetSafeArgument("-php_cgi_path", 0, "");
+	}
+	secure_webserver_settings.www_root = szWWWFolder;
+	m_mainworker.SetSecureWebserverSettings(secure_webserver_settings);
 #endif
 	if (cmdLine.HasSwitch("-nowwwpwd"))
 	{
@@ -672,18 +894,6 @@ int main(int argc, char**argv)
 	}
 	m_sql.SetDatabaseName(dbasefile);
 
-	if (cmdLine.HasSwitch("-wwwroot"))
-	{
-		if (cmdLine.GetArgumentCount("-wwwroot") != 1)
-		{
-			_log.Log(LOG_ERROR, "Please specify a WWW root path");
-			return 1;
-		}
-		std::string szroot = cmdLine.GetSafeArgument("-wwwroot", 0, "");
-		if (szroot.size() != 0)
-			szWWWFolder = szroot;
-	}
-
 	if (cmdLine.HasSwitch("-webroot"))
 	{
 		if (cmdLine.GetArgumentCount("-webroot") != 1)
@@ -696,16 +906,6 @@ int main(int argc, char**argv)
 			szWebRoot = szroot;
 	}
 
-	if (cmdLine.HasSwitch("-verbose"))
-	{
-		if (cmdLine.GetArgumentCount("-verbose") != 1)
-		{
-			_log.Log(LOG_ERROR, "Please specify a verbose level");
-			return 1;
-		}
-		int Level = atoi(cmdLine.GetSafeArgument("-verbose", 0, "").c_str());
-		m_mainworker.SetVerboseLevel((eVerboseLevel)Level);
-	}
 #if defined WIN32
 	if (cmdLine.HasSwitch("-nobrowser"))
 	{
@@ -747,10 +947,37 @@ int main(int argc, char**argv)
 		pidfile = cmdLine.GetSafeArgument("-pidfile", 0, PID_FILE);
 	}
 
+	if (cmdLine.HasSwitch("-syslog"))
+	{
+		g_bUseSyslog = true;
+		logfacname = cmdLine.GetSafeArgument("-syslog", 0, "");
+		if ( logfacname.length() == 0 ) 
+		{
+			logfacname = "user";
+		}
+	}
+
 	if ((g_bRunAsDaemon)||(g_bUseSyslog))
 	{
+		int idx, logfacility = 0;
+
+		for ( idx = 0; idx < sizeof(facilities)/sizeof(facilities[0]); idx++ ) 
+		{
+			if (strcmp(facilities[idx].facname, logfacname.c_str()) == 0) 
+			{
+				logfacility = facilities[idx].facvalue;
+				break;
+			}
+		} 
+		if ( logfacility == 0 ) 
+		{
+			_log.Log(LOG_ERROR, "%s is an unknown syslog facility", logfacname.c_str());
+			return 1;
+		}
+
+		// _log.Log(LOG_STATUS, "syslog to %s (%x)", logfacname.c_str(), logfacility);
 		setlogmask(LOG_UPTO(LOG_INFO));
-		openlog(daemonname.c_str(), LOG_CONS | LOG_PERROR, LOG_USER);
+		openlog(daemonname.c_str(), LOG_CONS | LOG_PERROR, logfacility);
 
 		syslog(LOG_INFO, "Domoticz is starting up....");
 	}
@@ -777,6 +1004,28 @@ int main(int argc, char**argv)
 		return 1;
 	}
 	m_StartTime = time(NULL);
+
+  //set log level / log output file name verbose level if set on command line
+  //the value as been taken from database in call of GetLogPreference m_mainworker.Start()
+	if (cmdLine.HasSwitch("-log"))
+	{
+		logfile = cmdLine.GetSafeArgument("-log", 0, "domoticz.log");
+		_log.SetOutputFile(logfile.c_str());
+	}
+	if (cmdLine.HasSwitch("-loglevel"))
+	{
+		int Level = atoi(cmdLine.GetSafeArgument("-loglevel", 0, "").c_str());
+		if     (Level==0) _log.SetVerboseLevel(VBL_ALL);
+		else if(Level==1) _log.SetVerboseLevel(VBL_STATUS_ERROR);
+		else if(Level==2) _log.SetVerboseLevel(VBL_ERROR);
+		else if ((Level == 3) && (_log.GetLogDebug())) _log.SetVerboseLevel(VBL_TRACE);
+	}
+	if (cmdLine.HasSwitch("-verbose"))
+	{
+		int Level = atoi(cmdLine.GetSafeArgument("-verbose", 0, "").c_str());
+		m_mainworker.SetVerboseLevel((eVerboseLevel)Level);
+	}
+
 
 	/* now, lets get into an infinite loop of doing nothing. */
 #if defined WIN32
